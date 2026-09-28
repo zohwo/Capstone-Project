@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.imputation import flag_outliers
 
@@ -77,3 +78,30 @@ def test_impute_missing_fills_process_columns_with_overall_median():
 
     assert result["침출온도_C"].tolist() == [60.0, 70.0, 80.0]
     assert result["침출시간_hr"].tolist() == [3.0, 4.0, 3.5]
+
+
+from src.imputation import impute_acid_volume
+
+
+def test_impute_acid_volume_predicts_missing_from_ore_mass():
+    # 정확히 acid = 7 * ore 관계를 갖는 학습 데이터 + 결측 1건
+    df = pd.DataFrame({
+        "원료투입량_kg": [100.0, 120.0, 140.0, 160.0, 180.0],
+        "황산투입량_L": [700.0, 840.0, 980.0, None, 1260.0],
+    })
+
+    result = impute_acid_volume(df)
+
+    assert result["황산투입량_L"].isna().sum() == 0
+    assert result["황산투입량_L"].iloc[3] == pytest.approx(1120.0, rel=1e-6)
+
+
+def test_impute_acid_volume_leaves_complete_column_unchanged():
+    df = pd.DataFrame({
+        "원료투입량_kg": [100.0, 120.0],
+        "황산투입량_L": [700.0, 840.0],
+    })
+
+    result = impute_acid_volume(df)
+
+    assert result["황산투입량_L"].tolist() == [700.0, 840.0]
