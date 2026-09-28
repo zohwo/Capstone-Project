@@ -39,6 +39,30 @@ def impute_acid_volume(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def interpolate_analysis_date(df: pd.DataFrame) -> pd.DataFrame:
+    """배치ID의 순번을 시간 순서 근사값으로 사용해 분석일자 결측을 보간한다."""
+    df = df.copy()
+
+    if "배치ID" not in df.columns or "분석일자" not in df.columns:
+        return df
+
+    batch_seq = df["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
+    ordered_index = batch_seq.sort_values().index
+
+    dates = df.loc[ordered_index, "분석일자"]
+    numeric = dates.to_numpy().astype("int64").astype("float64")
+    numeric[dates.isna().to_numpy()] = float("nan")
+
+    interpolated = pd.Series(numeric, index=ordered_index).interpolate(
+        limit_direction="both"
+    )
+    df.loc[ordered_index, "분석일자"] = pd.to_datetime(
+        interpolated.round().astype("int64")
+    )
+
+    return df
+
+
 def impute_missing(df: pd.DataFrame) -> pd.DataFrame:
     """조성 변수는 원료등급 그룹별 중앙값, 공정조건은 전체 중앙값으로 대치한다."""
     df = df.copy()
@@ -50,5 +74,6 @@ def impute_missing(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[col].fillna(df[col].median())
 
     df = impute_acid_volume(df)
+    df = interpolate_analysis_date(df)
 
     return df

@@ -105,3 +105,38 @@ def test_impute_acid_volume_leaves_complete_column_unchanged():
     result = impute_acid_volume(df)
 
     assert result["황산투입량_L"].tolist() == [700.0, 840.0]
+
+
+from src.imputation import interpolate_analysis_date
+
+
+def test_interpolate_analysis_date_fills_gap_using_batch_order():
+    df = pd.DataFrame({
+        "배치ID": ["BP-2025-0001", "BP-2025-0002", "BP-2025-0003", "BP-2025-0004"],
+        "분석일자": [
+            pd.Timestamp("2025-01-01"),
+            pd.NaT,
+            pd.NaT,
+            pd.Timestamp("2025-01-04"),
+        ],
+    })
+
+    result = interpolate_analysis_date(df)
+
+    assert result["분석일자"].tolist() == [
+        pd.Timestamp("2025-01-01"),
+        pd.Timestamp("2025-01-02"),
+        pd.Timestamp("2025-01-03"),
+        pd.Timestamp("2025-01-04"),
+    ]
+
+
+def test_interpolate_analysis_date_extrapolates_boundary_gap():
+    df = pd.DataFrame({
+        "배치ID": ["BP-2025-0001", "BP-2025-0002", "BP-2025-0003"],
+        "분석일자": [pd.NaT, pd.Timestamp("2025-01-02"), pd.Timestamp("2025-01-03")],
+    })
+
+    result = interpolate_analysis_date(df)
+
+    assert result["분석일자"].isna().sum() == 0
