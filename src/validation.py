@@ -5,6 +5,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import KFold, cross_validate
 
 from src.config import NORMAL_RANGES
 
@@ -89,3 +91,31 @@ def plot_correlation_heatmap(
     fig.savefig(output_path)
     plt.close(fig)
     return output_path
+
+
+def run_ablation_test(
+    df: pd.DataFrame,
+    feature_sets: dict,
+    target_columns: list,
+    n_splits: int = 5,
+    random_state: int = 42,
+) -> dict:
+    """피처 조합별로 교차검증 R²/RMSE를 계산해 파생변수·원료등급의 성능 기여를 정량 비교한다."""
+    results = {}
+
+    for case_name, feature_columns in feature_sets.items():
+        X = pd.get_dummies(df[feature_columns])
+
+        for target in target_columns:
+            y = df[target]
+            model = RandomForestRegressor(random_state=random_state)
+            cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+            scores = cross_validate(
+                model, X, y, cv=cv, scoring=["r2", "neg_root_mean_squared_error"]
+            )
+            results[(case_name, target)] = {
+                "r2_mean": float(scores["test_r2"].mean()),
+                "rmse_mean": float(-scores["test_neg_root_mean_squared_error"].mean()),
+            }
+
+    return results
