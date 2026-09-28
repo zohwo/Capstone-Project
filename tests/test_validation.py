@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 
 from src.validation import check_ranges, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
+from src.validation import run_ablation_test
 
 
 def test_check_ranges_reports_out_of_range_row_indices():
@@ -58,3 +59,46 @@ def test_plot_correlation_heatmap_creates_png(tmp_path):
 
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+def test_run_ablation_test_returns_r2_and_rmse_per_case_and_target():
+    rng = np.random.default_rng(42)
+    n = 40
+    x1 = rng.normal(20, 3, n)
+    x2 = rng.normal(8, 2, n)
+    noise = rng.normal(0, 0.5, n)
+    df = pd.DataFrame({
+        "feature_a": x1,
+        "feature_b": x2,
+        "target_1": x1 * 2 + x2 + noise,
+    })
+
+    feature_sets = {
+        "base": ["feature_a"],
+        "base_plus_b": ["feature_a", "feature_b"],
+    }
+
+    results = run_ablation_test(df, feature_sets, ["target_1"], n_splits=3, random_state=0)
+
+    assert set(results.keys()) == {("base", "target_1"), ("base_plus_b", "target_1")}
+    for metrics in results.values():
+        assert "r2_mean" in metrics
+        assert "rmse_mean" in metrics
+        assert isinstance(metrics["r2_mean"], float)
+        assert isinstance(metrics["rmse_mean"], float)
+
+
+def test_run_ablation_test_encodes_categorical_features():
+    rng = np.random.default_rng(0)
+    n = 30
+    df = pd.DataFrame({
+        "grade": rng.choice(["A", "B", "C"], n),
+        "value": rng.normal(10, 2, n),
+        "target_1": rng.normal(50, 5, n),
+    })
+
+    feature_sets = {"with_grade": ["grade", "value"]}
+
+    results = run_ablation_test(df, feature_sets, ["target_1"], n_splits=3, random_state=0)
+
+    assert ("with_grade", "target_1") in results
