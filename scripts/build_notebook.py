@@ -75,6 +75,8 @@ cells.append(nbf.v4.new_markdown_cell("## 6. 파생변수 및 원료등급 기�
 
 cells.append(nbf.v4.new_code_cell(
     "base_features = COMPOSITION_COLUMNS + PROCESS_COLUMNS\n"
+    "# analysis_month는 회수율 예측 후보 변수가 아니라 계절성/설비 드리프트 모니터링용 캘린더 "
+    "파생변수이므로, 특성 기여도 비교(히트맵·ablation test) 대상에서 제외한다.\n"
     "derived_features = ['acid_to_ore_ratio', 'leach_intensity', 'total_impurity_pct', 'target_purity_ratio']\n\n"
     "feature_sets = {\n"
     "    'base_only': base_features,\n"
@@ -103,9 +105,14 @@ cells.append(nbf.v4.new_markdown_cell(
     "아니라고 판단했다. 설계 문서 §9에서는 구현 단계의 실제 분포를 보고 불균형 여부와 "
     "계층적 샘플링(stratified split) 적용 여부를 결정하기로 했는데, 실측 결과 클래스 간 "
     "비율 차이가 26~39% 수준으로 완만해 SMOTE·계층적 샘플링·클래스 가중치 등 별도의 "
-    "불균형 보정은 적용하지 않기로 결론지었다. 위 ablation test의 `base_plus_grade` 결과가 "
-    "`base_only` 대비 유의한 개선을 보인 점도 현재 분포로 `원료등급`을 그대로 사용해도 "
-    "회귀 성능에 문제가 없음을 뒷받침한다."
+    "불균형 보정은 적용하지 않기로 결론지었다. 다만 위 ablation test 결과를 보면 `base_only`(Ni "
+    "R²=0.580, Co R²=0.601) 대비 `base_plus_grade`(Ni R²=0.581, Co R²=0.602)는 R²가 약 0.001 "
+    "수준만 상승해 `원료등급`을 모델 입력 특성으로 그대로 추가하는 것 자체는 회귀 성능에 유의미한 "
+    "영향을 주지 않는다. 그럼에도 `원료등급`은 Task 5의 등급별 중앙값 보간(grade-based median "
+    "imputation)에서 그룹핑 키로 쓰이므로 컬럼 자체는 계속 유지한다. 반면 산-광석비·침출강도·"
+    "총불순물·목표금속 순도비 등 파생변수는 `base_plus_derived`에서 R²를 Ni 0.580→0.811, "
+    "Co 0.601→0.793 수준으로 크게 끌어올려, 현재 데이터에서 회귀 성능에 실질적으로 기여하는 "
+    "것은 `원료등급`이 아니라 파생변수 쪽임을 ablation test가 보여준다."
 ))
 
 cells.append(nbf.v4.new_code_cell(
