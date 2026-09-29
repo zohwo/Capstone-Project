@@ -49,7 +49,14 @@ def interpolate_analysis_date(df: pd.DataFrame) -> pd.DataFrame:
     batch_seq = df["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
     ordered_index = batch_seq.sort_values().index
 
-    dates = df.loc[ordered_index, "분석일자"]
+    # Force nanosecond resolution explicitly: pandas' default datetime64
+    # resolution has changed across versions (e.g. pandas 3.x may store
+    # parsed dates in a coarser unit than pandas 2.x), and to_numpy().astype
+    # ("int64") reads whatever unit the Series actually has. Without pinning
+    # both the read and the write to "ns", a resolution mismatch silently
+    # reinterprets the integer timestamp in the wrong unit (e.g. 2025 dates
+    # come back as 1970).
+    dates = df.loc[ordered_index, "분석일자"].astype("datetime64[ns]")
     numeric = dates.to_numpy().astype("int64").astype("float64")
     numeric[dates.isna().to_numpy()] = float("nan")
 
@@ -57,7 +64,7 @@ def interpolate_analysis_date(df: pd.DataFrame) -> pd.DataFrame:
         limit_direction="both"
     )
     df.loc[ordered_index, "분석일자"] = pd.to_datetime(
-        interpolated.round().astype("int64")
+        interpolated.round().astype("int64"), unit="ns"
     )
 
     return df
