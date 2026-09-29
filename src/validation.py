@@ -5,6 +5,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+
+# matplotlib's font manager only registers the first face of the Noto Sans CJK
+# .ttc collection under the "CJK JP" name, but that face still contains the
+# Hangul glyphs needed to render Korean labels correctly.
+matplotlib.rcParams["font.family"] = "Noto Sans CJK JP"
+matplotlib.rcParams["axes.unicode_minus"] = False
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import KFold, cross_validate
 
