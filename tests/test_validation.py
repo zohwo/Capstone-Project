@@ -83,9 +83,12 @@ def test_run_ablation_test_returns_r2_and_rmse_per_case_and_target():
     assert set(results.keys()) == {("base", "target_1"), ("base_plus_b", "target_1")}
     for metrics in results.values():
         assert "r2_mean" in metrics
+        assert "r2_std" in metrics
         assert "rmse_mean" in metrics
         assert isinstance(metrics["r2_mean"], float)
+        assert isinstance(metrics["r2_std"], float)
         assert isinstance(metrics["rmse_mean"], float)
+        assert metrics["r2_std"] >= 0.0
 
 
 def test_run_ablation_test_encodes_categorical_features():

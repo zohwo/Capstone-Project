@@ -121,6 +121,7 @@ def run_ablation_test(
             )
             results[(case_name, target)] = {
                 "r2_mean": float(scores["test_r2"].mean()),
+                "r2_std": float(scores["test_r2"].std()),
                 "rmse_mean": float(-scores["test_neg_root_mean_squared_error"].mean()),
             }
 
