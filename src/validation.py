@@ -126,3 +126,60 @@ def run_ablation_test(
             }
 
     return results
+
+
+def plot_ablation_results(results: dict, output_dir: str | Path) -> Path:
+    """ablation test 결과(R² 평균 ± fold 표준편차)를 케이스별 막대그래프로 저장한다.
+
+    오차막대(fold 표준편차)를 같이 그려서, 케이스 간 R² 차이가 fold 노이즈보다
+    큰 실제 효과인지 한눈에 비교할 수 있게 한다.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    case_names = list(dict.fromkeys(case for case, _ in results.keys()))
+    target_names = list(dict.fromkeys(target for _, target in results.keys()))
+
+    fig, ax = plt.subplots(figsize=(max(6, len(case_names) * 1.5), 5))
+    x = range(len(case_names))
+    width = 0.8 / len(target_names)
+
+    for i, target in enumerate(target_names):
+        means = [results[(case, target)]["r2_mean"] for case in case_names]
+        stds = [results[(case, target)]["r2_std"] for case in case_names]
+        offsets = [xi + (i - (len(target_names) - 1) / 2) * width for xi in x]
+        ax.bar(offsets, means, width=width, yerr=stds, capsize=4, label=target)
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(case_names, rotation=20, ha="right")
+    ax.set_ylabel("R² (mean ± fold std)")
+    ax.legend()
+    fig.tight_layout()
+
+    output_path = output_dir / "ablation_results.png"
+    fig.savefig(output_path)
+    plt.close(fig)
+    return output_path
+
+
+def plot_grade_distribution(
+    df: pd.DataFrame, output_dir: str | Path, grade_column: str = "원료등급"
+) -> Path:
+    """범주형 컬럼(기본: 원료등급)의 클래스 분포를 막대그래프로 저장한다 (데이터 불균형 확인용)."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    counts = df[grade_column].value_counts().sort_index()
+
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ax.bar(counts.index.astype(str), counts.values)
+    ax.set_ylabel("배치 수")
+    ax.set_xlabel(grade_column)
+    for i, v in enumerate(counts.to_numpy()):
+        ax.text(i, v, str(v), ha="center", va="bottom")
+    fig.tight_layout()
+
+    output_path = output_dir / "grade_distribution.png"
+    fig.savefig(output_path)
+    plt.close(fig)
+    return output_path

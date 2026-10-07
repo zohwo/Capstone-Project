@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.validation import check_ranges, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
 from src.validation import run_ablation_test
+from src.validation import plot_ablation_results, plot_grade_distribution
 
 
 def test_check_ranges_reports_out_of_range_row_indices():
@@ -105,3 +106,27 @@ def test_run_ablation_test_encodes_categorical_features():
     results = run_ablation_test(df, feature_sets, ["target_1"], n_splits=3, random_state=0)
 
     assert ("with_grade", "target_1") in results
+
+
+def test_plot_ablation_results_creates_png(tmp_path):
+    results = {
+        ("base_only", "Ni_회수율_pct"): {"r2_mean": 0.58, "r2_std": 0.04, "rmse_mean": 3.8},
+        ("base_only", "Co_회수율_pct"): {"r2_mean": 0.60, "r2_std": 0.04, "rmse_mean": 4.3},
+        ("base_plus_derived", "Ni_회수율_pct"): {"r2_mean": 0.81, "r2_std": 0.03, "rmse_mean": 2.6},
+        ("base_plus_derived", "Co_회수율_pct"): {"r2_mean": 0.79, "r2_std": 0.02, "rmse_mean": 3.1},
+    }
+
+    output_path = plot_ablation_results(results, tmp_path)
+
+    assert output_path.exists()
+    assert output_path.suffix == ".png"
+    assert output_path.stat().st_size > 0
+
+
+def test_plot_grade_distribution_creates_png(tmp_path):
+    df = pd.DataFrame({"원료등급": ["A", "B", "B", "C", "A", "B"]})
+
+    output_path = plot_grade_distribution(df, tmp_path)
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0

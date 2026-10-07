@@ -25,6 +25,8 @@ cells.append(nbf.v4.new_code_cell(
     "    plot_distributions,\n"
     "    plot_correlation_heatmap,\n"
     "    run_ablation_test,\n"
+    "    plot_ablation_results,\n"
+    "    plot_grade_distribution,\n"
     ")\n"
     "from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS, TARGET_COLUMNS\n\n"
     "RAW_PATH = Path('../data/raw/영풍그룹_금속회수율최적화_RawMaterialData_학생배포용.xlsx')\n"
@@ -89,6 +91,10 @@ cells.append(nbf.v4.new_code_cell(
     "pd.DataFrame(results).T"
 ))
 
+cells.append(nbf.v4.new_code_cell(
+    "plot_ablation_results(results, FIGURES_DIR)"
+))
+
 cells.append(nbf.v4.new_markdown_cell(
     "### 6.1 개별 불순물 비율(Fe/Ni, Cu/Ni, Al/Ni) 추가 검증\n\n"
     "`total_impurity_pct`는 Cu/Fe/Al 불순물을 동일 가중치로 합산해, 어느 불순물이 "
@@ -104,6 +110,10 @@ cells.append(nbf.v4.new_code_cell(
     "}\n\n"
     "ratio_results = run_ablation_test(final_df, ratio_feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(ratio_results).T"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "plot_ablation_results(ratio_results, FIGURES_DIR / 'ratios')"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
@@ -153,6 +163,10 @@ cells.append(nbf.v4.new_markdown_cell(
 
 cells.append(nbf.v4.new_code_cell(
     "final_df['원료등급'].value_counts(normalize=True) * 100"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "plot_grade_distribution(final_df, FIGURES_DIR)"
 ))
 
 nb["cells"] = cells
