@@ -98,13 +98,16 @@ cells.append(nbf.v4.new_code_cell(
 cells.append(nbf.v4.new_markdown_cell(
     "### 6.1 개별 불순물 비율(Fe/Ni, Cu/Ni, Al/Ni) 추가 검증\n\n"
     "`total_impurity_pct`는 Cu/Fe/Al 불순물을 동일 가중치로 합산해, 어느 불순물이 "
-    "실제로 회수율 저하를 유발하는지 정보를 가린다. 개별 비율로 분리했을 때 "
-    "`base_plus_derived` 대비 실제로 성능이 더 좋아지는지 검증한다."
+    "실제로 회수율 저하를 유발하는지 정보를 가린다. 위 §6 ablation과 동일한 4-케이스 구조로, "
+    "비율 변수가 (a) 단독으로도 신호가 있는지, (b) 이미 검증된 최선 조합(`base_plus_derived`) "
+    "위에 추가로 기여하는지를 함께 검증한다."
 ))
 
 cells.append(nbf.v4.new_code_cell(
     "impurity_ratio_features = ['Fe_Ni_ratio', 'Cu_Ni_ratio', 'Al_Ni_ratio']\n\n"
     "ratio_feature_sets = {\n"
+    "    'base_only': base_features,\n"
+    "    'base_plus_ratios': base_features + impurity_ratio_features,\n"
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'base_plus_derived_plus_ratios': base_features + derived_features + impurity_ratio_features,\n"
     "}\n\n"
@@ -117,18 +120,24 @@ cells.append(nbf.v4.new_code_cell(
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "**결론**: 실측 결과 `base_plus_derived`(Ni R²=0.8107±0.0307, Co R²=0.7925±0.0220) 대비 "
-    "`base_plus_derived_plus_ratios`(Ni R²=0.8098±0.0329, Co R²=0.7874±0.0207)는 개선되지 "
-    "않고 오히려 소폭 하락했다. 차이(Ni -0.0009, Co -0.0051)는 fold별 표준편차(r2_std, "
-    "약 0.02~0.03)보다 훨씬 작아 **통계적으로 노이즈 수준과 구분이 안 되는 차이**다 — "
-    "즉 \"떨어졌다\"고 말하기도 어려울 만큼, 교차검증 fold를 어떻게 나누느냐에 따라 흔들릴 "
-    "수 있는 범위 안에 있다. `base_features`에 이미 `Cu/Fe/Al_불순물_pct`와 `Ni_함량_pct` "
-    "원본 컬럼, 그리고 `total_impurity_pct` 파생변수가 포함되어 있어, Fe/Ni·Cu/Ni·Al/Ni "
-    "비율은 모델이 이미 접근 가능한 정보의 재조합(다중공선성)에 가까워 새로운 신호를 "
-    "추가하지 못한 것으로 보인다. 따라서 이 세 비율 변수는 `engineer_features`에는 "
-    "유지하되(해석용 참고 지표로서의 가치는 있을 수 있음), 최종 모델 입력 특성 세트에는 "
-    "포함하지 않기로 결론짓는다 — \"도메인상 그럴듯해 보인다\"는 이유만으로 파생변수를 "
-    "채택하면 안 되고, ablation test로 (평균뿐 아니라 fold 간 변동폭까지 고려해) 실측 "
+    "**결론**: 4개 케이스 실측 결과는 다음과 같다.\n\n"
+    "- `base_only` → `base_plus_ratios`: Ni R² 0.5802±0.0415 → 0.5791±0.0387 (차이 -0.0011), "
+    "Co R² 0.6014±0.0417 → 0.6023±0.0403 (차이 +0.0009) — **비율 변수는 단독으로도 "
+    "아무 신호가 없다.**\n"
+    "- `base_plus_derived` → `base_plus_derived_plus_ratios`: Ni R² 0.8107±0.0307 → "
+    "0.8098±0.0329 (차이 -0.0009), Co R² 0.7925±0.0220 → 0.7874±0.0207 (차이 -0.0051) — "
+    "이미 검증된 최선 조합 위에 추가해도 역시 변화 없음.\n\n"
+    "두 비교 모두 차이가 fold별 표준편차(r2_std, 약 0.02~0.04)보다 훨씬 작아 "
+    "**통계적으로 노이즈 수준과 구분이 안 되는 차이**다. 상관관계 히트맵에서는 "
+    "Fe_Ni_ratio·Cu_Ni_ratio·Al_Ni_ratio가 타겟과 -0.4~-0.5 수준의(결코 약하지 않은) "
+    "단순 상관을 보였는데도 모델 R²에는 전혀 기여하지 못했다는 점이 흥미롭다 — "
+    "RandomForest는 이미 `Cu/Fe/Al_불순물_pct`와 `Ni_함량_pct` 원본 컬럼에 직접 접근할 "
+    "수 있어서, 비율을 미리 계산해주지 않아도 트리 분기로 비슷한 경계를 스스로 학습할 "
+    "수 있기 때문으로 보인다(이는 비율 항이 명시적으로 필요한 선형모델과의 차이점이다). "
+    "따라서 이 세 비율 변수는 `engineer_features`에는 유지하되(해석용 참고 지표로서의 "
+    "가치는 있을 수 있음), 최종 모델 입력 특성 세트에는 포함하지 않기로 결론짓는다 — "
+    "\"단순 상관계수가 높아 보인다\"는 것과 \"모델에 실제로 기여한다\"는 것은 다른 "
+    "질문이며, 후자는 반드시 ablation test로 (평균뿐 아니라 fold 간 변동폭까지 고려해) "
     "검증해야 한다는 것을 보여주는 사례다."
 ))
 
