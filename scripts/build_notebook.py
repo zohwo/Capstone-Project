@@ -59,7 +59,8 @@ cells.append(nbf.v4.new_markdown_cell("## 4. 상관관계 히트맵"))
 
 cells.append(nbf.v4.new_code_cell(
     "feature_columns = COMPOSITION_COLUMNS + PROCESS_COLUMNS + [\n"
-    "    'acid_to_ore_ratio', 'leach_intensity', 'total_impurity_pct', 'target_purity_ratio'\n"
+    "    'acid_to_ore_ratio', 'leach_intensity', 'total_impurity_pct', 'target_purity_ratio',\n"
+    "    'Fe_Ni_ratio', 'Cu_Ni_ratio', 'Al_Ni_ratio'\n"
     "]\n"
     "plot_correlation_heatmap(final_df, feature_columns, TARGET_COLUMNS, FIGURES_DIR)"
 ))
@@ -86,6 +87,35 @@ cells.append(nbf.v4.new_code_cell(
     "}\n\n"
     "results = run_ablation_test(final_df, feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(results).T"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 6.1 개별 불순물 비율(Fe/Ni, Cu/Ni, Al/Ni) 추가 검증\n\n"
+    "`total_impurity_pct`는 Cu/Fe/Al 불순물을 동일 가중치로 합산해, 어느 불순물이 "
+    "실제로 회수율 저하를 유발하는지 정보를 가린다. 개별 비율로 분리했을 때 "
+    "`base_plus_derived` 대비 실제로 성능이 더 좋아지는지 검증한다."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "impurity_ratio_features = ['Fe_Ni_ratio', 'Cu_Ni_ratio', 'Al_Ni_ratio']\n\n"
+    "ratio_feature_sets = {\n"
+    "    'base_plus_derived': base_features + derived_features,\n"
+    "    'base_plus_derived_plus_ratios': base_features + derived_features + impurity_ratio_features,\n"
+    "}\n\n"
+    "ratio_results = run_ablation_test(final_df, ratio_feature_sets, TARGET_COLUMNS)\n"
+    "pd.DataFrame(ratio_results).T"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "**결론**: 실측 결과 `base_plus_derived`(Ni R²=0.8107, Co R²=0.7925) 대비 "
+    "`base_plus_derived_plus_ratios`(Ni R²=0.8098, Co R²=0.7874)는 개선되지 않고 "
+    "오히려 소폭 하락했다. `base_features`에 이미 `Cu/Fe/Al_불순물_pct`와 `Ni_함량_pct` 원본 "
+    "컬럼, 그리고 `total_impurity_pct` 파생변수가 포함되어 있어, Fe/Ni·Cu/Ni·Al/Ni 비율은 "
+    "모델이 이미 접근 가능한 정보의 재조합(다중공선성)에 가까워 새로운 신호를 추가하지 "
+    "못한 것으로 보인다. 따라서 이 세 비율 변수는 `engineer_features`에는 유지하되(해석용 "
+    "참고 지표로서의 가치는 있을 수 있음), 최종 모델 입력 특성 세트에는 포함하지 않기로 "
+    "결론짓는다 — \"도메인상 그럴듯해 보인다\"는 이유만으로 파생변수를 채택하면 안 되고, "
+    "ablation test로 실측 검증해야 한다는 것을 보여주는 사례다."
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
