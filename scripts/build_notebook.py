@@ -67,6 +67,24 @@ cells.append(nbf.v4.new_code_cell(
     "plot_correlation_heatmap(final_df, feature_columns, TARGET_COLUMNS, FIGURES_DIR)"
 ))
 
+cells.append(nbf.v4.new_markdown_cell(
+    "조성 변수 중 목표금속(Ni_함량_pct, Co_함량_pct, Li_함량_pct)은 회수율과 양의 "
+    "상관(+0.30~+0.49), 불순물(Cu/Fe/Al_불순물_pct)과 Mn_함량_pct는 음의 상관(-0.26~-0.57)을 "
+    "보여 — 원료 안에 목표금속이 많을수록, 불순물이 많을수록 회수율에 미치는 방향이 §6 "
+    "특성공학에서 가정한 도메인 지식(경쟁 반응 가설)과 일치한다. 공정조건(침출온도_C, "
+    "침출시간_hr)도 양의 상관(+0.27~+0.48)을 보여 반응속도론적 기대와 부합한다.\n\n"
+    "특히 파생변수(acid_to_ore_ratio, leach_intensity, total_impurity_pct, "
+    "target_purity_ratio)는 대체로 그 구성요소인 원본 변수 개별 상관보다 더 강하다 — 예: "
+    "leach_intensity(Ni 0.51)는 구성요소인 침출온도_C(0.48)·침출시간_hr(0.36) 개별 상관보다 "
+    "높고, total_impurity_pct(Co -0.60)도 Cu/Fe/Al_불순물_pct 개별 상관(-0.53~-0.57)보다 더 "
+    "강하다. 이는 §6 ablation test에서 파생변수가 R²를 크게 끌어올린 결과(0.58→0.81)와 방향이 "
+    "일치한다.\n\n"
+    "반면 Fe_Ni_ratio·Cu_Ni_ratio·Al_Ni_ratio도 -0.41~-0.54 수준의 꽤 강한 단순 상관을 "
+    "보이는데, §6.1 ablation test에서는 모델 R²에 전혀 기여하지 못했다(§6.1 결론 참고) — "
+    "변수 하나와 타겟 사이의 단순 상관과, 다른 변수들과 함께 썼을 때의 모델 기여도는 "
+    "서로 다른 질문이라는 걸 보여주는 사례다."
+))
+
 cells.append(nbf.v4.new_markdown_cell("## 5. 정합성 검증"))
 
 cells.append(nbf.v4.new_code_cell(
