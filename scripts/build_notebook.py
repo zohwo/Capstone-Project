@@ -44,6 +44,20 @@ cells.append(nbf.v4.new_code_cell(
     "final_df.head()"
 ))
 
+cells.append(nbf.v4.new_markdown_cell(
+    "### 1.1 모델링용 중복 배치 제거\n\n"
+    "`배치ID` 기준 중복 4건(8행)은 분석일자·원료등급·회수율까지 완전히 동일한 복사본으로 "
+    "확인됐다. 삭제하지 않고 감사 목적상 `is_duplicate_batch` 플래그만 남긴 원본(`final_df`, "
+    "424행)은 그대로 보존하되, 교차검증에 동일 데이터가 두 번 들어가면 학습·평가에 같은 "
+    "포인트가 중복 반영되어 성능이 부풀려질 수 있으므로, 상관관계·ablation test 등 모델링에는 "
+    "별도로 중복을 제거한 `model_df`를 사용한다."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "model_df = final_df.drop_duplicates(subset='배치ID', keep='first')\n"
+    "print(f'final_df: {len(final_df)}행 / model_df(중복 제거): {len(model_df)}행')"
+))
+
 cells.append(nbf.v4.new_markdown_cell("## 2. 결측치 처리 전/후 비교"))
 
 cells.append(nbf.v4.new_code_cell(
@@ -64,7 +78,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'acid_to_ore_ratio', 'leach_intensity', 'total_impurity_pct', 'target_purity_ratio',\n"
     "    'Fe_Ni_ratio', 'Cu_Ni_ratio', 'Al_Ni_ratio'\n"
     "]\n"
-    "plot_correlation_heatmap(final_df, feature_columns, TARGET_COLUMNS, FIGURES_DIR)"
+    "plot_correlation_heatmap(model_df, feature_columns, TARGET_COLUMNS, FIGURES_DIR)"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
@@ -77,8 +91,8 @@ cells.append(nbf.v4.new_markdown_cell(
     "target_purity_ratio)는 대체로 그 구성요소인 원본 변수 개별 상관보다 더 강하다 — 예: "
     "leach_intensity(Ni 0.51)는 구성요소인 침출온도_C(0.48)·침출시간_hr(0.36) 개별 상관보다 "
     "높고, total_impurity_pct(Co -0.60)도 Cu/Fe/Al_불순물_pct 개별 상관(-0.53~-0.57)보다 더 "
-    "강하다. 이는 §6 ablation test에서 파생변수가 R²를 크게 끌어올린 결과(0.58→0.81)와 방향이 "
-    "일치한다.\n\n"
+    "강하다. 이는 §6 ablation test에서 파생변수가 R²를 크게 끌어올린 결과(Ni 0.55→0.81)와 "
+    "방향이 일치한다.\n\n"
     "반면 Fe_Ni_ratio·Cu_Ni_ratio·Al_Ni_ratio도 -0.41~-0.54 수준의 꽤 강한 단순 상관을 "
     "보이는데, §6.1 ablation test에서는 모델 R²에 전혀 기여하지 못했다(§6.1 결론 참고) — "
     "변수 하나와 타겟 사이의 단순 상관과, 다른 변수들과 함께 썼을 때의 모델 기여도는 "
@@ -105,7 +119,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'all_features': base_features + ['원료등급'] + derived_features,\n"
     "}\n\n"
-    "results = run_ablation_test(final_df, feature_sets, TARGET_COLUMNS)\n"
+    "results = run_ablation_test(model_df, feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(results).T"
 ))
 
@@ -129,7 +143,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'base_plus_derived_plus_ratios': base_features + derived_features + impurity_ratio_features,\n"
     "}\n\n"
-    "ratio_results = run_ablation_test(final_df, ratio_feature_sets, TARGET_COLUMNS)\n"
+    "ratio_results = run_ablation_test(model_df, ratio_feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(ratio_results).T"
 ))
 
@@ -138,14 +152,14 @@ cells.append(nbf.v4.new_code_cell(
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "**결론**: 4개 케이스 실측 결과는 다음과 같다.\n\n"
-    "- `base_only` → `base_plus_ratios`: Ni R² 0.5802±0.0415 → 0.5791±0.0387 (차이 -0.0011), "
-    "Co R² 0.6014±0.0417 → 0.6023±0.0403 (차이 +0.0009) — **비율 변수는 단독으로도 "
+    "**결론**: 4개 케이스 실측 결과는 다음과 같다 (중복 배치 제거한 `model_df` 기준).\n\n"
+    "- `base_only` → `base_plus_ratios`: Ni R² 0.5495±0.0457 → 0.5436±0.0490 (차이 -0.0059), "
+    "Co R² 0.5900±0.0552 → 0.5834±0.0597 (차이 -0.0066) — **비율 변수는 단독으로도 "
     "아무 신호가 없다.**\n"
-    "- `base_plus_derived` → `base_plus_derived_plus_ratios`: Ni R² 0.8107±0.0307 → "
-    "0.8098±0.0329 (차이 -0.0009), Co R² 0.7925±0.0220 → 0.7874±0.0207 (차이 -0.0051) — "
+    "- `base_plus_derived` → `base_plus_derived_plus_ratios`: Ni R² 0.8071±0.0224 → "
+    "0.7997±0.0249 (차이 -0.0074), Co R² 0.7927±0.0138 → 0.7924±0.0170 (차이 -0.0003) — "
     "이미 검증된 최선 조합 위에 추가해도 역시 변화 없음.\n\n"
-    "두 비교 모두 차이가 fold별 표준편차(r2_std, 약 0.02~0.04)보다 훨씬 작아 "
+    "두 비교 모두 차이가 fold별 표준편차(r2_std, 약 0.01~0.06)보다 훨씬 작아 "
     "**통계적으로 노이즈 수준과 구분이 안 되는 차이**다. 상관관계 히트맵에서는 "
     "Fe_Ni_ratio·Cu_Ni_ratio·Al_Ni_ratio가 타겟과 -0.4~-0.5 수준의(결코 약하지 않은) "
     "단순 상관을 보였는데도 모델 R²에는 전혀 기여하지 못했다는 점이 흥미롭다 — "
@@ -176,15 +190,16 @@ cells.append(nbf.v4.new_markdown_cell(
     "아니라고 판단했다. 설계 문서 §9에서는 구현 단계의 실제 분포를 보고 불균형 여부와 "
     "계층적 샘플링(stratified split) 적용 여부를 결정하기로 했는데, 실측 결과 클래스 간 "
     "비율 차이가 26~39% 수준으로 완만해 SMOTE·계층적 샘플링·클래스 가중치 등 별도의 "
-    "불균형 보정은 적용하지 않기로 결론지었다. 다만 위 ablation test 결과를 보면 `base_only`(Ni "
-    "R²=0.580±0.041, Co R²=0.601±0.042) 대비 `base_plus_grade`(Ni R²=0.581±0.041, Co "
-    "R²=0.602±0.040)는 R²가 약 0.001 수준만 상승했는데, 이는 fold별 표준편차(r2_std≈0.04)보다 "
-    "훨씬 작아 통계적으로 유의미한 개선이라고 볼 수 없다 — `원료등급`을 모델 입력 특성으로 그대로 "
-    "추가하는 것 자체는 회귀 성능에 영향을 주지 않는다. 그럼에도 `원료등급`은 Task 5의 등급별 "
-    "중앙값 보간(grade-based median "
+    "불균형 보정은 적용하지 않기로 결론지었다. 다만 위 ablation test 결과(중복 배치 제거한 "
+    "`model_df` 기준)를 보면 `base_only`(Ni R²=0.5495±0.0457, Co R²=0.5900±0.0552) 대비 "
+    "`base_plus_grade`(Ni R²=0.5495±0.0450, Co R²=0.5876±0.0530)는 Ni는 거의 그대로, Co는 "
+    "오히려 소폭 하락(-0.0024)했는데, 이는 fold별 표준편차(r2_std≈0.04~0.06)보다 훨씬 작아 "
+    "통계적으로 유의미한 변화라고 볼 수 없다 — `원료등급`을 모델 입력 특성으로 그대로 추가하는 "
+    "것 자체는 회귀 성능에 영향을 주지 않는다. 그럼에도 `원료등급`은 Task 5의 등급별 중앙값 보간"
+    "(grade-based median "
     "imputation)에서 그룹핑 키로 쓰이므로 컬럼 자체는 계속 유지한다. 반면 산-광석비·침출강도·"
-    "총불순물·목표금속 순도비 등 파생변수는 `base_plus_derived`에서 R²를 Ni 0.580→0.811, "
-    "Co 0.601→0.793 수준으로 크게 끌어올려, 현재 데이터에서 회귀 성능에 실질적으로 기여하는 "
+    "총불순물·목표금속 순도비 등 파생변수는 `base_plus_derived`에서 R²를 Ni 0.5495→0.8071, "
+    "Co 0.5900→0.7927 수준으로 크게 끌어올려, 현재 데이터에서 회귀 성능에 실질적으로 기여하는 "
     "것은 `원료등급`이 아니라 파생변수 쪽임을 ablation test가 보여준다."
 ))
 
