@@ -38,24 +38,30 @@ cells.append(nbf.v4.new_markdown_cell("## 1. 원본 로드 및 정제"))
 cells.append(nbf.v4.new_code_cell(
     "raw_df = load_raw(RAW_PATH)\n"
     "clean_df = clean_schema(raw_df)\n"
+    "clean_df.shape"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 1.1 완전 중복 배치 제거\n\n"
+    "`배치ID` 기준 중복 4건(8행)은 분석일자·원료등급·회수율까지 완전히 동일한 복사본으로 "
+    "확인됐다 — 서로 다른 두 배치에 ID가 우연히 겹친 게 아니라 같은 레코드가 두 번 입력된 "
+    "것이다. `clean_schema`가 남긴 `is_duplicate_batch` 플래그를 근거로 첫 occurrence만 "
+    "남기고 제거한다 — 그대로 두면 교차검증에서 동일 데이터 포인트가 train/test 양쪽에 걸쳐 "
+    "들어가 성능 지표가 부풀려질 수 있다. 남은 행의 `is_duplicate_batch=True`는 \"원래 중복이 "
+    "있었고 하나는 제거됐다\"는 감사 기록으로 유지된다 (`src/pipeline.py`의 `run()`과 동일한 "
+    "순서)."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "clean_df = clean_df.drop_duplicates(subset='배치ID', keep='first')\n"
+    "print(f'중복 제거 후: {len(clean_df)}행')"
+))
+
+cells.append(nbf.v4.new_code_cell(
     "outlier_flagged_df = flag_outliers(clean_df)\n"
     "imputed_df = impute_missing(outlier_flagged_df)\n"
     "final_df = engineer_features(imputed_df)\n"
     "final_df.head()"
-))
-
-cells.append(nbf.v4.new_markdown_cell(
-    "### 1.1 모델링용 중복 배치 제거\n\n"
-    "`배치ID` 기준 중복 4건(8행)은 분석일자·원료등급·회수율까지 완전히 동일한 복사본으로 "
-    "확인됐다. 삭제하지 않고 감사 목적상 `is_duplicate_batch` 플래그만 남긴 원본(`final_df`, "
-    "424행)은 그대로 보존하되, 교차검증에 동일 데이터가 두 번 들어가면 학습·평가에 같은 "
-    "포인트가 중복 반영되어 성능이 부풀려질 수 있으므로, 상관관계·ablation test 등 모델링에는 "
-    "별도로 중복을 제거한 `model_df`를 사용한다."
-))
-
-cells.append(nbf.v4.new_code_cell(
-    "model_df = final_df.drop_duplicates(subset='배치ID', keep='first')\n"
-    "print(f'final_df: {len(final_df)}행 / model_df(중복 제거): {len(model_df)}행')"
 ))
 
 cells.append(nbf.v4.new_markdown_cell("## 2. 결측치 처리 전/후 비교"))
@@ -78,7 +84,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'acid_to_ore_ratio', 'leach_intensity', 'total_impurity_pct', 'target_purity_ratio',\n"
     "    'Fe_Ni_ratio', 'Cu_Ni_ratio', 'Al_Ni_ratio'\n"
     "]\n"
-    "plot_correlation_heatmap(model_df, feature_columns, TARGET_COLUMNS, FIGURES_DIR)"
+    "plot_correlation_heatmap(final_df, feature_columns, TARGET_COLUMNS, FIGURES_DIR)"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
@@ -119,7 +125,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'all_features': base_features + ['원료등급'] + derived_features,\n"
     "}\n\n"
-    "results = run_ablation_test(model_df, feature_sets, TARGET_COLUMNS)\n"
+    "results = run_ablation_test(final_df, feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(results).T"
 ))
 
@@ -143,7 +149,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'base_plus_derived_plus_ratios': base_features + derived_features + impurity_ratio_features,\n"
     "}\n\n"
-    "ratio_results = run_ablation_test(model_df, ratio_feature_sets, TARGET_COLUMNS)\n"
+    "ratio_results = run_ablation_test(final_df, ratio_feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(ratio_results).T"
 ))
 
@@ -152,7 +158,7 @@ cells.append(nbf.v4.new_code_cell(
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "**결론**: 4개 케이스 실측 결과는 다음과 같다 (중복 배치 제거한 `model_df` 기준).\n\n"
+    "**결론**: 4개 케이스 실측 결과는 다음과 같다.\n\n"
     "- `base_only` → `base_plus_ratios`: Ni R² 0.5495±0.0457 → 0.5436±0.0490 (차이 -0.0059), "
     "Co R² 0.5900±0.0552 → 0.5834±0.0597 (차이 -0.0066) — **비율 변수는 단독으로도 "
     "아무 신호가 없다.**\n"
@@ -185,13 +191,13 @@ cells.append(nbf.v4.new_markdown_cell(
     "화학양론·반응속도론적 지식에서 도출했다 (설계 문서 §6). 위 ablation test로 파생변수·원료등급 "
     "포함 시 R²/RMSE가 실제로 개선되는지 정량 확인했다.\n\n"
     "**3) 데이터 불균형 문제가 있었다면 어떻게 해결했는가?**\n\n"
-    "전체 424행 기준 `원료등급`(A/B/C) 분포는 B 38.9%, A 35.1%, C 25.9%로(아래 셀 실행 결과), "
-    "가장 적은 클래스(C)도 약 26%를 차지해 특정 클래스가 극단적으로 희소한 심각한 불균형은 "
-    "아니라고 판단했다. 설계 문서 §9에서는 구현 단계의 실제 분포를 보고 불균형 여부와 "
-    "계층적 샘플링(stratified split) 적용 여부를 결정하기로 했는데, 실측 결과 클래스 간 "
-    "비율 차이가 26~39% 수준으로 완만해 SMOTE·계층적 샘플링·클래스 가중치 등 별도의 "
-    "불균형 보정은 적용하지 않기로 결론지었다. 다만 위 ablation test 결과(중복 배치 제거한 "
-    "`model_df` 기준)를 보면 `base_only`(Ni R²=0.5495±0.0457, Co R²=0.5900±0.0552) 대비 "
+    "전체 420행(중복 배치 제거 후) 기준 `원료등급`(A/B/C) 분포는 B 38.6%, A 35.2%, C "
+    "26.2%로(아래 셀 실행 결과), 가장 적은 클래스(C)도 약 26%를 차지해 특정 클래스가 "
+    "극단적으로 희소한 심각한 불균형은 아니라고 판단했다. 설계 문서 §9에서는 구현 단계의 "
+    "실제 분포를 보고 불균형 여부와 계층적 샘플링(stratified split) 적용 여부를 결정하기로 "
+    "했는데, 실측 결과 클래스 간 비율 차이가 26~39% 수준으로 완만해 SMOTE·계층적 "
+    "샘플링·클래스 가중치 등 별도의 불균형 보정은 적용하지 않기로 결론지었다. 다만 위 "
+    "ablation test 결과를 보면 `base_only`(Ni R²=0.5495±0.0457, Co R²=0.5900±0.0552) 대비 "
     "`base_plus_grade`(Ni R²=0.5495±0.0450, Co R²=0.5876±0.0530)는 Ni는 거의 그대로, Co는 "
     "오히려 소폭 하락(-0.0024)했는데, 이는 fold별 표준편차(r2_std≈0.04~0.06)보다 훨씬 작아 "
     "통계적으로 유의미한 변화라고 볼 수 없다 — `원료등급`을 모델 입력 특성으로 그대로 추가하는 "
