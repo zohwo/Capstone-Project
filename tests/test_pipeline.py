@@ -14,7 +14,11 @@ def test_run_produces_clean_dataframe_with_no_missing_in_key_columns(tmp_path):
     result = run(RAW_PATH, output_path)
 
     assert output_path.exists()
-    assert result.shape[0] == 424
+    assert result.shape[0] == 420
+    assert result["배치ID"].is_unique
+    # 중복 쌍 4건은 첫 occurrence만 남기고 제거되지만, 남은 행의 is_duplicate_batch는
+    # "이 배치는 원래 중복이 있었고 하나는 제거됐다"는 감사 기록으로 True가 유지된다.
+    assert result["is_duplicate_batch"].sum() == 4
     for col in list(NORMAL_RANGES.keys()) + ["배치ID", "원료등급"]:
         assert result[col].isna().sum() == 0
 
