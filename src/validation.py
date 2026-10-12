@@ -11,10 +11,14 @@ import seaborn as sns
 # Hangul glyphs needed to render Korean labels correctly.
 matplotlib.rcParams["font.family"] = "Noto Sans CJK JP"
 matplotlib.rcParams["axes.unicode_minus"] = False
+import numpy as np
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import KFold, cross_validate
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import KFold
 
-from src.config import NORMAL_RANGES
+from src.config import COMPOSITION_COLUMNS, NORMAL_RANGES, PROCESS_COLUMNS
+from src.features import engineer_features
 
 
 def check_ranges(df: pd.DataFrame, ranges: dict = NORMAL_RANGES) -> dict:
@@ -99,6 +103,40 @@ def plot_correlation_heatmap(
     return output_path
 
 
+def _fold_safe_prepare(train_df: pd.DataFrame, apply_df: pd.DataFrame) -> pd.DataFrame:
+    """train_df의 통계(그룹별/전체 중앙값, 회귀계수)만으로 apply_df의 결측치를 대치하고
+    파생변수를 생성한다. apply_df가 train_df 자신이면 일반적인 전처리와 동일하고,
+    apply_df가 별도의 test 구간이면 train 통계만 새어나가게 해서 data leakage를 막는다.
+    """
+    out = apply_df.copy()
+
+    for col in COMPOSITION_COLUMNS:
+        group_medians = train_df.groupby("원료등급")[col].median()
+        overall_median = train_df[col].median()
+        missing = out[col].isna()
+        if missing.any():
+            out.loc[missing, col] = (
+                out.loc[missing, "원료등급"].map(group_medians).fillna(overall_median)
+            )
+
+    for col in PROCESS_COLUMNS:
+        out[col] = out[col].fillna(train_df[col].median())
+
+    train_missing = train_df["황산투입량_L"].isna()
+    train_acid = train_df.loc[~train_missing, ["원료투입량_kg", "황산투입량_L"]].dropna()
+    if not train_acid.empty:
+        model = LinearRegression().fit(
+            train_acid[["원료투입량_kg"]], train_acid["황산투입량_L"]
+        )
+        acid_missing = out["황산투입량_L"].isna()
+        if acid_missing.any():
+            out.loc[acid_missing, "황산투입량_L"] = model.predict(
+                out.loc[acid_missing, ["원료투입량_kg"]]
+            )
+
+    return engineer_features(out)
+
+
 def run_ablation_test(
     df: pd.DataFrame,
     feature_sets: dict,
@@ -106,23 +144,46 @@ def run_ablation_test(
     n_splits: int = 5,
     random_state: int = 42,
 ) -> dict:
-    """피처 조합별로 교차검증 R²/RMSE를 계산해 파생변수·원료등급의 성능 기여를 정량 비교한다."""
+    """피처 조합별로 교차검증 R²/RMSE를 계산해 파생변수·원료등급의 성능 기여를 정량 비교한다.
+
+    df는 결측치 대치 전(flag_outliers까지만 적용된) 데이터를 받는다. 각 fold마다 train
+    구간의 통계로만 결측치를 대치하고 파생변수를 만들어 train/test에 각각 적용하므로,
+    fold 간 data leakage 없이 평가한다.
+    """
     results = {}
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    fold_indices = list(kf.split(df))
 
     for case_name, feature_columns in feature_sets.items():
-        X = pd.get_dummies(df[feature_columns])
-
         for target in target_columns:
-            y = df[target]
-            model = RandomForestRegressor(random_state=random_state)
-            cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-            scores = cross_validate(
-                model, X, y, cv=cv, scoring=["r2", "neg_root_mean_squared_error"]
-            )
+            r2_scores = []
+            rmse_scores = []
+
+            for train_pos, test_pos in fold_indices:
+                train_i = df.index[train_pos]
+                test_i = df.index[test_pos]
+
+                train_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[train_i])
+                test_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[test_i])
+
+                X_train = pd.get_dummies(train_prepared[feature_columns])
+                X_test = pd.get_dummies(test_prepared[feature_columns]).reindex(
+                    columns=X_train.columns, fill_value=0
+                )
+                y_train = df.loc[train_i, target]
+                y_test = df.loc[test_i, target]
+
+                model = RandomForestRegressor(random_state=random_state)
+                model.fit(X_train, y_train)
+                preds = model.predict(X_test)
+
+                r2_scores.append(r2_score(y_test, preds))
+                rmse_scores.append(float(np.sqrt(mean_squared_error(y_test, preds))))
+
             results[(case_name, target)] = {
-                "r2_mean": float(scores["test_r2"].mean()),
-                "r2_std": float(scores["test_r2"].std()),
-                "rmse_mean": float(-scores["test_neg_root_mean_squared_error"].mean()),
+                "r2_mean": float(np.mean(r2_scores)),
+                "r2_std": float(np.std(r2_scores)),
+                "rmse_mean": float(np.mean(rmse_scores)),
             }
 
     return results
