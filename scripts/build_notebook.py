@@ -22,6 +22,7 @@ cells.append(nbf.v4.new_code_cell(
     "from src.splitting import temporal_train_val_test_split\n"
     "from src.validation import (\n"
     "    check_ranges,\n"
+    "    check_missing,\n"
     "    plot_missing_before_after,\n"
     "    plot_distributions,\n"
     "    plot_correlation_heatmap,\n"
@@ -61,6 +62,11 @@ cells.append(nbf.v4.new_code_cell(
 cells.append(nbf.v4.new_code_cell(
     "outlier_flagged_df = flag_outliers(clean_df)\n"
     "outlier_flagged_df.shape"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "missing = check_missing(outlier_flagged_df)\n"
+    "print('결측치 확인:', missing if missing else '없음')"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
@@ -135,7 +141,13 @@ cells.append(nbf.v4.new_markdown_cell(
     "서로 다른 질문이라는 걸 보여주는 사례다."
 ))
 
-cells.append(nbf.v4.new_markdown_cell("## 5. 정합성 검증"))
+cells.append(nbf.v4.new_markdown_cell(
+    "## 5. 정합성 검증\n\n"
+    "`src/pipeline.py`의 `run()`은 여기서 위반이 발견되면 `assert`로 즉시 중단한다 "
+    "(`flag_outliers`가 범위 밖 값을 이미 다 걸러낸 뒤라, 위반이 남아있다면 그건 "
+    "데이터 문제가 아니라 대치·파생변수 로직의 버그이기 때문이다). 이 노트북은 탐색용이라 "
+    "멈추지 않고 결과만 출력한다."
+))
 
 cells.append(nbf.v4.new_code_cell(
     "violations = check_ranges(final_df)\n"
