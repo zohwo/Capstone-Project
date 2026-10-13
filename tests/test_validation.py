@@ -1,11 +1,10 @@
 import numpy as np
-import pytest
 
 import pandas as pd
 
 from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS
 from src.validation import check_ranges, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
-from src.validation import run_ablation_test, _fold_safe_prepare, _temporal_split
+from src.validation import run_ablation_test
 from src.validation import plot_ablation_results, plot_grade_distribution
 
 
@@ -108,7 +107,7 @@ def test_run_ablation_test_returns_r2_and_rmse_per_case_and_target():
         ("base_plus_process", "Ni_회수율_pct"),
     }
     for metrics in results.values():
-        for key in ["val_r2", "val_rmse", "test_r2", "test_rmse"]:
+        for key in ["val_r2", "val_rmse", "val_mae", "test_r2", "test_rmse", "test_mae"]:
             assert key in metrics
             assert isinstance(metrics[key], float)
 
@@ -121,73 +120,6 @@ def test_run_ablation_test_encodes_categorical_features():
     results = run_ablation_test(df, feature_sets, ["Ni_회수율_pct"])
 
     assert ("with_grade", "Ni_회수율_pct") in results
-
-
-def test_temporal_split_respects_batch_order_without_shuffling():
-    df = _make_ablation_fixture(n=40)
-
-    train_i, val_i, test_i = _temporal_split(df, train_frac=0.7, val_frac=0.15)
-
-    batch_seq = df["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
-    assert batch_seq.loc[train_i].max() < batch_seq.loc[val_i].min()
-    assert batch_seq.loc[val_i].max() < batch_seq.loc[test_i].min()
-    assert len(train_i) + len(val_i) + len(test_i) == len(df)
-
-
-def test_temporal_split_sizes_match_requested_fractions():
-    df = _make_ablation_fixture(n=40)
-
-    train_i, val_i, test_i = _temporal_split(df, train_frac=0.7, val_frac=0.15)
-
-    assert len(train_i) == 28
-    assert len(val_i) == 6
-    assert len(test_i) == 6
-
-
-def test_fold_safe_prepare_imputes_missing_value_from_train_group_median_only():
-    df = _make_ablation_fixture()
-    train_df = df.iloc[:30]
-    apply_df = df.iloc[30:].copy()
-
-    target_row = apply_df.index[0]
-    grade = apply_df.loc[target_row, "원료등급"]
-    apply_df.loc[target_row, "Ni_함량_pct"] = np.nan
-
-    result = _fold_safe_prepare(train_df, apply_df)
-
-    expected = train_df.loc[train_df["원료등급"] == grade, "Ni_함량_pct"].median()
-    assert result.loc[target_row, "Ni_함량_pct"] == pytest.approx(expected)
-
-
-def test_fold_safe_prepare_ignores_apply_df_values_when_imputing():
-    df = _make_ablation_fixture()
-    train_df = df.iloc[:30]
-
-    # apply_df 쪽 값을 극단적으로 바꿔도 train_df 통계만 쓰이므로 대치값이 그대로여야 한다
-    apply_a = df.iloc[30:].copy()
-    apply_b = df.iloc[30:].copy()
-    apply_b["Ni_함량_pct"] = 9999.0
-
-    target_row = apply_a.index[0]
-    apply_a.loc[target_row, "Ni_함량_pct"] = np.nan
-    apply_b.loc[target_row, "Ni_함량_pct"] = np.nan
-
-    result_a = _fold_safe_prepare(train_df, apply_a)
-    result_b = _fold_safe_prepare(train_df, apply_b)
-
-    assert result_a.loc[target_row, "Ni_함량_pct"] == result_b.loc[target_row, "Ni_함량_pct"]
-
-
-def test_fold_safe_prepare_returns_engineered_columns():
-    df = _make_ablation_fixture()
-    train_df = df.iloc[:30]
-    apply_df = df.iloc[30:]
-
-    result = _fold_safe_prepare(train_df, apply_df)
-
-    for col in ["acid_to_ore_ratio", "leach_intensity", "total_impurity_pct", "target_purity_ratio"]:
-        assert col in result.columns
-        assert result[col].isna().sum() == 0
 
 
 def test_plot_ablation_results_creates_png(tmp_path):

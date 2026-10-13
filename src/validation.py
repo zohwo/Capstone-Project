@@ -13,11 +13,12 @@ matplotlib.rcParams["font.family"] = "Noto Sans CJK JP"
 matplotlib.rcParams["axes.unicode_minus"] = False
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import COMPOSITION_COLUMNS, NORMAL_RANGES, PROCESS_COLUMNS
+from src.config import NORMAL_RANGES
 from src.features import engineer_features
+from src.imputation import impute_missing_from_reference
+from src.splitting import temporal_train_val_test_split
 
 
 def check_ranges(df: pd.DataFrame, ranges: dict = NORMAL_RANGES) -> dict:
@@ -102,54 +103,14 @@ def plot_correlation_heatmap(
     return output_path
 
 
-def _fold_safe_prepare(train_df: pd.DataFrame, apply_df: pd.DataFrame) -> pd.DataFrame:
-    """train_df의 통계(그룹별/전체 중앙값, 회귀계수)만으로 apply_df의 결측치를 대치하고
-    파생변수를 생성한다. apply_df가 train_df 자신이면 일반적인 전처리와 동일하고,
-    apply_df가 별도의 test 구간이면 train 통계만 새어나가게 해서 data leakage를 막는다.
+def _prepare_split(reference_df: pd.DataFrame, target_df: pd.DataFrame) -> pd.DataFrame:
+    """reference_df 통계로 target_df의 결측치를 leak-safe하게 대치한 뒤 파생변수를 생성한다.
+
+    결측치 대치(`impute_missing_from_reference`, 6단계)와 파생변수 생성
+    (`engineer_features`, 7단계)을 분리된 단계로 순서대로 적용한다.
     """
-    out = apply_df.copy()
-
-    for col in COMPOSITION_COLUMNS:
-        group_medians = train_df.groupby("원료등급")[col].median()
-        overall_median = train_df[col].median()
-        missing = out[col].isna()
-        if missing.any():
-            out.loc[missing, col] = (
-                out.loc[missing, "원료등급"].map(group_medians).fillna(overall_median)
-            )
-
-    for col in PROCESS_COLUMNS:
-        out[col] = out[col].fillna(train_df[col].median())
-
-    train_missing = train_df["황산투입량_L"].isna()
-    train_acid = train_df.loc[~train_missing, ["원료투입량_kg", "황산투입량_L"]].dropna()
-    if not train_acid.empty:
-        model = LinearRegression().fit(
-            train_acid[["원료투입량_kg"]], train_acid["황산투입량_L"]
-        )
-        acid_missing = out["황산투입량_L"].isna()
-        if acid_missing.any():
-            out.loc[acid_missing, "황산투입량_L"] = model.predict(
-                out.loc[acid_missing, ["원료투입량_kg"]]
-            )
-
-    return engineer_features(out)
-
-
-def _temporal_split(
-    df: pd.DataFrame, train_frac: float = 0.7, val_frac: float = 0.15
-) -> tuple[pd.Index, pd.Index, pd.Index]:
-    """배치ID 순번(분석일자 순서의 근사)으로 시간순 정렬한 뒤 Train/Validation/Test
-    구간으로 고정 분할한다 (무작위 섞기 없음 — 미래 배치로 과거를 평가하지 않도록).
-    """
-    batch_seq = df["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
-    ordered_index = batch_seq.sort_values().index
-
-    n = len(ordered_index)
-    train_end = int(n * train_frac)
-    val_end = int(n * (train_frac + val_frac))
-
-    return ordered_index[:train_end], ordered_index[train_end:val_end], ordered_index[val_end:]
+    imputed = impute_missing_from_reference(reference_df, target_df)
+    return engineer_features(imputed)
 
 
 def run_ablation_test(
@@ -168,13 +129,13 @@ def run_ablation_test(
     구간에 적용하므로 미래 데이터를 미리 들여다보지 않는 leak-safe 평가가 된다. Validation은
     피처 조합 간 비교(이 함수의 목적)에 쓰고, Test는 최종 확인용으로 함께 보고한다.
     """
-    train_i, val_i, test_i = _temporal_split(df, train_frac, val_frac)
+    train_i, val_i, test_i = temporal_train_val_test_split(df, train_frac, val_frac)
 
     results = {}
     for case_name, feature_columns in feature_sets.items():
-        train_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[train_i])
-        val_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[val_i])
-        test_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[test_i])
+        train_prepared = _prepare_split(df.loc[train_i], df.loc[train_i])
+        val_prepared = _prepare_split(df.loc[train_i], df.loc[val_i])
+        test_prepared = _prepare_split(df.loc[train_i], df.loc[test_i])
 
         X_train = pd.get_dummies(train_prepared[feature_columns])
         X_val = pd.get_dummies(val_prepared[feature_columns]).reindex(
@@ -198,8 +159,10 @@ def run_ablation_test(
             results[(case_name, target)] = {
                 "val_r2": float(r2_score(y_val, val_preds)),
                 "val_rmse": float(np.sqrt(mean_squared_error(y_val, val_preds))),
+                "val_mae": float(mean_absolute_error(y_val, val_preds)),
                 "test_r2": float(r2_score(y_test, test_preds)),
                 "test_rmse": float(np.sqrt(mean_squared_error(y_test, test_preds))),
+                "test_mae": float(mean_absolute_error(y_test, test_preds)),
             }
 
     return results

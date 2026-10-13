@@ -28,4 +28,11 @@ PROCESS_COLUMNS = ["침출온도_C", "침출시간_hr"]
 
 TARGET_COLUMNS = ["Ni_회수율_pct", "Co_회수율_pct"]
 
+DERIVED_FEATURES = [
+    "acid_to_ore_ratio",
+    "leach_intensity",
+    "total_impurity_pct",
+    "target_purity_ratio",
+]
+
 RAW_SHEET_NAME = "원료분석_원본데이터"
