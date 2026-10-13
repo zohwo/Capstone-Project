@@ -4,60 +4,108 @@ import pandas as pd
 
 from src.config import COMPOSITION_COLUMNS, DERIVED_FEATURES, PROCESS_COLUMNS, TARGET_COLUMNS
 from src.features import engineer_features
-from src.imputation import flag_outliers, impute_missing_from_reference, interpolate_analysis_date
-from src.preprocessing import clean_schema, load_raw
+from src.imputation import replace_outliers_with_nan, impute_missing_from_reference, interpolate_analysis_date
+from src.preprocessing import clean_schema, load_raw, resolve_duplicate_batches
 from src.splitting import temporal_train_val_test_split
-from src.validation import check_ranges, check_missing, run_ablation_test
+from src.validation import check_ranges, check_missing, evaluate_final_model, run_ablation_test
 
 
 def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
-    """원본 데이터를 로드해 정제·분할·대치·특성공학·검증까지 수행하고 CSV로 저장한다.
+    """원본 데이터를 정제·분할·대치·특성공학·검증한 뒤 CSV로 저장한다.
 
-    Train/Validation/Test로 시간순 분할한 뒤, 결측치 대치 통계(중앙값·회귀계수)는
-    Train 구간으로만 계산해 Validation/Test에 적용한다 — data leakage 없이 미래
-    배치를 평가하는 `src/validation.py`의 `run_ablation_test`와 동일한 원칙이다.
+    시간순으로 Train/Validation/Test를 분할하고,
+    Train 통계만 사용해 전체 구간의 결측치를 대치하여 데이터 누수를 방지한다.
     """
+
     df = load_raw(input_path)
 
     raw_violations = check_ranges(df)
     print(f"raw 데이터 정상범위 위반: {raw_violations if raw_violations else '없음'}")
 
     df = clean_schema(df)
-    df = df.drop_duplicates(subset="배치ID", keep="first")
-    df = flag_outliers(df)
+    df = resolve_duplicate_batches(df)
+    df = replace_outliers_with_nan(df)
 
     missing = check_missing(df)
     print(f"결측치 확인: {missing if missing else '없음'}")
 
+    df = interpolate_analysis_date(df)
     pre_impute_df = df.copy()
 
-    df = interpolate_analysis_date(df)
-
     train_i, val_i, test_i = temporal_train_val_test_split(df)
+
     df["split"] = "train"
     df.loc[val_i, "split"] = "validation"
     df.loc[test_i, "split"] = "test"
 
-    train_df = df.loc[train_i]
+    train_df = df.loc[train_i].copy()
+
     df = impute_missing_from_reference(train_df, df)
     df = engineer_features(df)
 
-    # flag_outliers가 범위 밖 값을 전부 NaN으로 치환하고 대치까지 끝난 상태이므로,
-    # 여기서 위반이 발견되면 대치/파생변수 로직에 버그가 있다는 뜻이다 — 잘못된
-    # 데이터를 CSV로 내보내지 않도록 경고만 찍지 않고 즉시 중단한다.
+    remaining_missing = check_missing(df)
+
+    if remaining_missing:
+        raise ValueError(f"정제 후 결측치 발견 - {remaining_missing}")
+
+    print("정제 후 남은 결측치: 없음")
+
     violations = check_ranges(df)
-    assert not violations, f"정상범위 위반 발견 - {violations}"
+
+    if violations:
+        raise ValueError(f"정상범위 위반 발견 - {violations}")
+
     print("정제 후 정상범위 위반: 없음")
 
     base_features = COMPOSITION_COLUMNS + PROCESS_COLUMNS
+
+    feature_sets = {
+        "base": base_features,
+        "base_plus_derived": base_features + DERIVED_FEATURES,
+    }
+
     ablation_results = run_ablation_test(
-        pre_impute_df,
-        {"base": base_features, "base_plus_derived": base_features + DERIVED_FEATURES},
+        pre_impute_df.loc[train_i],
+        pre_impute_df.loc[val_i],
+        feature_sets,
         TARGET_COLUMNS,
     )
-    print("파생변수 전/후 성능 비교 (Validation/Test 기준 R²·RMSE·MAE):")
+
+    print("파생변수 전/후 성능 비교 (Validation 기준 R²·RMSE·MAE):")
     for (case_name, target), metrics in ablation_results.items():
         print(f"  {case_name} / {target}: {metrics}")
+
+    # 목표변수별로 Validation R²가 가장 높은 피처 조합 선택
+    best_cases = {
+        target: max(
+            feature_sets,
+            key=lambda case_name: ablation_results[(case_name, target)]["val_r2"]
+        )
+        for target in TARGET_COLUMNS
+    }
+
+    for target, best_case in best_cases.items():
+        print(f"{target} 최종 피처 조합: {best_case}")
+
+    # 각 목표변수별 최종 피처 조합으로 Test 1회 평가
+    final_test_results = {}
+
+    for target in TARGET_COLUMNS:
+        final_features = feature_sets[best_cases[target]]
+
+        target_result = evaluate_final_model(
+            pre_impute_df.loc[train_i],
+            pre_impute_df.loc[val_i],
+            pre_impute_df.loc[test_i],
+            final_features,
+            [target],
+        )
+
+        final_test_results[target] = target_result[target]
+
+    print("최종 Test 성능:")
+    for target, metrics in final_test_results.items():
+        print(f"  {target}: {metrics}")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
