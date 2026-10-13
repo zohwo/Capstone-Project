@@ -44,6 +44,7 @@ def test_run_adds_all_engineered_columns(tmp_path):
         "target_purity_ratio",
         "analysis_month",
         "is_duplicate_batch",
+        "is_conflicting_duplicate",
     ]:
         assert col in result.columns
 

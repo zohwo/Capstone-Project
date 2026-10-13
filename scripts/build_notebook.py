@@ -7,8 +7,8 @@ cells = []
 
 cells.append(nbf.v4.new_markdown_cell(
     "# 모듈 1: 블랙파우더 성분 데이터 전처리 - EDA 및 검증\n\n"
-    "`src/pipeline.py`의 각 단계를 순서대로 호출해 원본 데이터를 정제하고, "
-    "전/후 비교 시각화와 파생변수·원료등급 기여도(ablation test)를 확인한다."
+    "- `src/pipeline.py`의 각 단계를 순서대로 실행함\n"
+    "- 전/후 비교 시각화, 파생변수·원료등급 기여도(ablation test) 확인함"
 ))
 
 cells.append(nbf.v4.new_code_cell(
@@ -16,8 +16,8 @@ cells.append(nbf.v4.new_code_cell(
     "sys.path.append('..')\n\n"
     "import pandas as pd\n"
     "from pathlib import Path\n\n"
-    "from src.preprocessing import load_raw, clean_schema\n"
-    "from src.imputation import flag_outliers, impute_missing_from_reference, interpolate_analysis_date\n"
+    "from src.preprocessing import load_raw, clean_schema, resolve_duplicate_batches\n"
+    "from src.imputation import replace_outliers_with_nan, impute_missing_from_reference, interpolate_analysis_date\n"
     "from src.features import engineer_features\n"
     "from src.splitting import temporal_train_val_test_split\n"
     "from src.validation import (\n"
@@ -29,6 +29,7 @@ cells.append(nbf.v4.new_code_cell(
     "    run_ablation_test,\n"
     "    plot_ablation_results,\n"
     "    plot_grade_distribution,\n"
+    "    evaluate_final_model,\n"
     ")\n"
     "from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS, TARGET_COLUMNS\n\n"
     "RAW_PATH = Path('../data/raw/영풍그룹_금속회수율최적화_RawMaterialData_학생배포용.xlsx')\n"
@@ -44,9 +45,8 @@ cells.append(nbf.v4.new_code_cell(
 
 cells.append(nbf.v4.new_markdown_cell(
     "### 1.0 정제 전 정상범위 위반 확인\n\n"
-    "정제를 시작하기 **전**에도 한 번 확인해서, 정제 후(§5)와 직접 대비해본다 — "
-    "\"처리 전엔 이만큼 위반이 있었는데 처리 후엔 0건\"이라는 전/후 대비가 정제가 "
-    "실제로 작동했다는 가장 직접적인 증거가 된다."
+    "- 정제 전 위반 건수를 먼저 측정함\n"
+    "- §5(정제 후)와 직접 대비함"
 ))
 
 cells.append(nbf.v4.new_code_cell(
@@ -61,22 +61,23 @@ cells.append(nbf.v4.new_code_cell(
 
 cells.append(nbf.v4.new_markdown_cell(
     "### 1.1 완전 중복 배치 제거\n\n"
-    "`배치ID` 기준 중복 4건(8행)은 분석일자·원료등급·회수율까지 완전히 동일한 복사본으로 "
-    "확인됐다 — 서로 다른 두 배치에 ID가 우연히 겹친 게 아니라 같은 레코드가 두 번 입력된 "
-    "것이다. `clean_schema`가 남긴 `is_duplicate_batch` 플래그를 근거로 첫 occurrence만 "
-    "남기고 제거한다 — 그대로 두면 교차검증에서 동일 데이터 포인트가 train/test 양쪽에 걸쳐 "
-    "들어가 성능 지표가 부풀려질 수 있다. 남은 행의 `is_duplicate_batch=True`는 \"원래 중복이 "
-    "있었고 하나는 제거됐다\"는 감사 기록으로 유지된다 (`src/pipeline.py`의 `run()`과 동일한 "
-    "순서)."
+    "- `배치ID` 기준 중복 4건(8행) 확인함\n"
+    "- 전체 컬럼까지 완전히 동일한 행만 자동 제거함(`resolve_duplicate_batches`) — "
+    "배치ID만 같고 다른 값이 있는 충돌은 지우지 않고 `is_conflicting_duplicate`로 "
+    "표시해 사람이 확인하게 함 (방치 시 동일 데이터가 train/test 양쪽에 걸쳐 들어가 "
+    "성능 지표가 부풀려짐)\n"
+    "- 남은 행의 `is_duplicate_batch=True`는 감사 기록으로 유지함 (`pipeline.py`의 "
+    "`run()`과 동일한 순서)"
 ))
 
 cells.append(nbf.v4.new_code_cell(
-    "clean_df = clean_df.drop_duplicates(subset='배치ID', keep='first')\n"
-    "print(f'중복 제거 후: {len(clean_df)}행')"
+    "clean_df = resolve_duplicate_batches(clean_df)\n"
+    "print(f'중복 제거 후: {len(clean_df)}행, 충돌(수동 확인 필요): "
+    "{clean_df[\"is_conflicting_duplicate\"].sum()}건')"
 ))
 
 cells.append(nbf.v4.new_code_cell(
-    "outlier_flagged_df = flag_outliers(clean_df)\n"
+    "outlier_flagged_df = replace_outliers_with_nan(clean_df)\n"
     "outlier_flagged_df.shape"
 ))
 
@@ -86,26 +87,69 @@ cells.append(nbf.v4.new_code_cell(
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "### 1.2 분석일자 보간\n\n"
-    "분석일자는 모델 피처로 쓰이지 않는 위치 기반 로직(배치ID 순서로 보간)이라 "
-    "train/val/test 구분이 필요 없다 — 그래서 분할(§1.3) **전에** 전체 데이터로 "
-    "한 번에 처리한다. ablation test에 쓰는 `pre_impute_df`는 이 보간 **이전** "
-    "시점(`flag_outliers`까지만 적용된) 스냅샷이라 서로 영향을 주지 않는다."
+    "### 1.1.5 결측 패턴 진단 (체계적 편향 여부 확인)\n\n"
+    "결측을 그냥 채우기 전에, 결측이 특정 조건(원료등급)에 쏠려있거나 여러 컬럼에서 "
+    "동시에 발생하는 체계적 패턴인지 확인한다 — 체계적 패턴이 있다면 단순 중앙값 "
+    "대치가 편향을 만들 수 있기 때문이다."
 ))
 
 cells.append(nbf.v4.new_code_cell(
-    "pre_impute_df = outlier_flagged_df.copy()\n"
+    "from scipy.stats import chi2_contingency\n\n"
+    "missing_cols = [\n"
+    "    c for c in outlier_flagged_df.columns\n"
+    "    if outlier_flagged_df[c].isna().any() and c != '분석일자'\n"
+    "]\n\n"
+    "print('컬럼별 결측 비율:')\n"
+    "for col in missing_cols:\n"
+    "    print(f'  {col}: {outlier_flagged_df[col].isna().mean() * 100:.1f}%')"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "print('카이제곱 독립성 검정 (원료등급 vs 결측여부):')\n"
+    "for col in missing_cols:\n"
+    "    table = pd.crosstab(outlier_flagged_df['원료등급'], outlier_flagged_df[col].isna())\n"
+    "    chi2, p, dof, expected = chi2_contingency(table)\n"
+    "    print(f'  {col}: chi2={chi2:.3f}, p={p:.3f}')"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "missing_flags = outlier_flagged_df[missing_cols].isna().astype(int)\n"
+    "missing_flags.corr().round(2)"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "**결과**: 결측 비율은 컬럼별로 6.9~10.7% 수준이다. 카이제곱 검정 결과 10개 "
+    "컬럼 중 8개는 p>0.05로 원료등급과 결측 여부가 독립적이지만, `Mn_함량_pct`"
+    "(p=0.043)와 `Cu_불순물_pct`(p=0.006) 두 컬럼은 원료등급에 따라 결측 "
+    "발생률이 통계적으로 다르다 — 완전히 무작위(MCAR)는 아니라는 뜻이다. 다만 "
+    "이 두 컬럼도 조성 변수라 이미 원료등급별 그룹 중앙값으로 대치하고 있어서"
+    "(`impute_missing_from_reference`), 등급에 따른 결측 편향 자체가 대치 "
+    "방식에 반영되어 있다. 결측 플래그 간 상관계수는 전부 -0.09~0.10 사이로 "
+    "0에 가까워, 여러 컬럼이 동시에 결측되는 패턴은 없다."
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 1.2 분석일자 보간\n\n"
+    "- 분석일자는 모델 피처로 안 쓰는 위치 기반 로직(배치ID 순서로 보간)임 — "
+    "train/val/test 구분 불필요함\n"
+    "- 분할(§1.3) 전에 전체 데이터로 한 번에 처리함\n"
+    "- `pre_impute_df`는 보간 이후, 그룹별 결측치 대치 이전 시점 스냅샷임"
+))
+
+cells.append(nbf.v4.new_code_cell(
     "interpolated_df = interpolate_analysis_date(outlier_flagged_df)\n"
+    "pre_impute_df = interpolated_df.copy()\n"
     "print('분석일자 결측:', interpolated_df['분석일자'].isna().sum())"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
     "### 1.3 시간순 Train/Validation/Test 분할\n\n"
-    "배치는 2025년 1~10월에 걸쳐 순차적으로 들어온 데이터이고, 이 모델이 실제로 쓰이는 "
-    "상황(과거 배치로 학습해 앞으로 들어올 미래 배치를 예측)을 재현하려면 무작위로 섞어서 "
-    "나누면 안 된다. 배치ID 순번(분석일자 순서의 근사)으로 정렬한 뒤 앞 70%를 Train, "
-    "다음 15%를 Validation, 마지막 15%를 Test로 고정 분할한다 (`src/pipeline.py`의 "
-    "`run()`과 동일한 분할)."
+    "- 배치는 2025년 1~10월 순차 데이터임 — 무작위 분할 금지\n"
+    "- 배치ID 순번(분석일자 근사) 기준 앞 70% Train, 다음 15% Validation, 마지막 15% "
+    "Test로 고정 분할함 (`pipeline.py`의 `run()`과 동일)\n"
+    "- 여기서 계산한 `train_i`는 §1.4의 결측치 대치 기준으로 재사용함. "
+    "§6/§6.1의 feature 선택은 `train_i`/`val_i`만 사용함 — `test_i`는 feature "
+    "선택에 끼워 넣지 않고 최종 평가용으로 따로 남겨둔다 (§6.2 참고)"
 ))
 
 cells.append(nbf.v4.new_code_cell(
@@ -115,10 +159,8 @@ cells.append(nbf.v4.new_code_cell(
 
 cells.append(nbf.v4.new_markdown_cell(
     "### 1.4 Train 통계 기반 결측치 대치 + 파생변수 생성\n\n"
-    "Validation·Test 구간의 결측치도 Train 구간 통계(그룹별/전체 중앙값, 회귀계수)로만 "
-    "채운다 — Train이 자기 자신을 대치하는 것은 괜찮지만(원래 자기 데이터), "
-    "Validation·Test는 Train 통계만 적용받고 자기 자신의 값은 대치 계산에 전혀 쓰이지 "
-    "않는다(`impute_missing_from_reference`)."
+    "- Validation·Test 결측치도 Train 통계(그룹별/전체 중앙값, 회귀계수)로만 채움\n"
+    "- Validation·Test 자신의 값은 대치 계산에 쓰지 않음 (`impute_missing_from_reference`)"
 ))
 
 cells.append(nbf.v4.new_code_cell(
@@ -128,10 +170,14 @@ cells.append(nbf.v4.new_code_cell(
     "final_df.head()"
 ))
 
-cells.append(nbf.v4.new_markdown_cell("## 2. 결측치 처리 전/후 비교"))
+cells.append(nbf.v4.new_markdown_cell(
+    "## 2. 결측치 처리 전/후 비교\n\n"
+    "- \"전\" 기준은 `outlier_flagged_df` (분석일자 보간도 적용 전, 진짜 결측 그대로인 "
+    "시점)임 — `pre_impute_df`는 분석일자가 이미 채워진 상태라 보간 효과가 안 보임"
+))
 
 cells.append(nbf.v4.new_code_cell(
-    "plot_missing_before_after(pre_impute_df, imputed_df, FIGURES_DIR)"
+    "plot_missing_before_after(outlier_flagged_df, imputed_df, FIGURES_DIR)"
 ))
 
 cells.append(nbf.v4.new_markdown_cell("## 3. 이상치 제거 전/후 분포"))
@@ -152,30 +198,23 @@ cells.append(nbf.v4.new_code_cell(
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "조성 변수 중 목표금속(Ni_함량_pct, Co_함량_pct, Li_함량_pct)은 회수율과 양의 "
-    "상관(+0.30~+0.49), 불순물(Cu/Fe/Al_불순물_pct)과 Mn_함량_pct는 음의 상관(-0.26~-0.57)을 "
-    "보여 — 원료 안에 목표금속이 많을수록, 불순물이 많을수록 회수율에 미치는 방향이 §6 "
-    "특성공학에서 가정한 도메인 지식(경쟁 반응 가설)과 일치한다. 공정조건(침출온도_C, "
-    "침출시간_hr)도 양의 상관(+0.27~+0.48)을 보여 반응속도론적 기대와 부합한다.\n\n"
-    "특히 파생변수(acid_to_ore_ratio, leach_intensity, total_impurity_pct, "
-    "target_purity_ratio)는 대체로 그 구성요소인 원본 변수 개별 상관보다 더 강하다 — 예: "
-    "leach_intensity(Ni 0.51)는 구성요소인 침출온도_C(0.48)·침출시간_hr(0.36) 개별 상관보다 "
-    "높고, total_impurity_pct(Co -0.60)도 Cu/Fe/Al_불순물_pct 개별 상관(-0.53~-0.57)보다 더 "
-    "강하다. 이는 §6 ablation test에서 파생변수가 R²를 크게 끌어올린 결과(Ni Validation "
-    "R² 0.48→0.75)와 방향이 일치한다.\n\n"
-    "반면 Fe_Ni_ratio·Cu_Ni_ratio·Al_Ni_ratio도 -0.41~-0.54 수준의 꽤 강한 단순 상관을 "
-    "보이는데, §6.1 ablation test에서는 모델 R²에 전혀 기여하지 못했다(§6.1 결론 참고) — "
-    "변수 하나와 타겟 사이의 단순 상관과, 다른 변수들과 함께 썼을 때의 모델 기여도는 "
-    "서로 다른 질문이라는 걸 보여주는 사례다."
+    "- 목표금속(Ni/Co/Li_함량_pct)은 회수율과 양의 상관(+0.30~+0.49), 불순물"
+    "(Cu/Fe/Al_불순물_pct)·Mn_함량_pct는 음의 상관(-0.26~-0.57)임 — §6 도메인 가설과 "
+    "방향 일치함\n"
+    "- 공정조건(침출온도_C, 침출시간_hr)도 양의 상관(+0.27~+0.48)임\n"
+    "- 파생변수(acid_to_ore_ratio, leach_intensity, total_impurity_pct, "
+    "target_purity_ratio)는 구성요소 원본 변수보다 상관이 더 강함 — 예: "
+    "leach_intensity(Ni 0.51) > 침출온도_C(0.48)·침출시간_hr(0.36)\n"
+    "- Fe_Ni_ratio·Cu_Ni_ratio·Al_Ni_ratio는 단순 상관은 -0.41~-0.54로 강하지만, §6.1 "
+    "ablation test에서는 모델 R²에 기여 못함 — 단순 상관과 모델 기여도는 다른 질문임"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
     "## 5. 정합성 검증\n\n"
-    "§1.0에서 확인한 raw 데이터의 위반 건수와 비교해보면 정제가 실제로 작동했는지 "
-    "바로 드러난다. `src/pipeline.py`의 `run()`은 여기서 위반이 발견되면 `assert`로 "
-    "즉시 중단한다 (`flag_outliers`가 범위 밖 값을 이미 다 걸러낸 뒤라, 위반이 남아있다면 "
-    "그건 데이터 문제가 아니라 대치·파생변수 로직의 버그이기 때문이다). 이 노트북은 "
-    "탐색용이라 멈추지 않고 결과만 출력한다."
+    "- §1.0 raw 위반 건수와 비교해 정제 효과 확인함\n"
+    "- `pipeline.py`의 `run()`은 위반 발견 시 `assert`로 즉시 중단함 (남아있다면 "
+    "대치·파생변수 로직 버그라는 뜻)\n"
+    "- 이 노트북은 탐색용이라 중단 없이 결과만 출력함"
 ))
 
 cells.append(nbf.v4.new_code_cell(
@@ -196,7 +235,10 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'all_features': base_features + ['원료등급'] + derived_features,\n"
     "}\n\n"
-    "results = run_ablation_test(pre_impute_df, feature_sets, TARGET_COLUMNS)\n"
+    "results = run_ablation_test(\n"
+    "    pre_impute_df.loc[train_i], pre_impute_df.loc[val_i],\n"
+    "    feature_sets, TARGET_COLUMNS\n"
+    ")\n"
     "pd.DataFrame(results).T"
 ))
 
@@ -206,10 +248,9 @@ cells.append(nbf.v4.new_code_cell(
 
 cells.append(nbf.v4.new_markdown_cell(
     "### 6.1 개별 불순물 비율(Fe/Ni, Cu/Ni, Al/Ni) 추가 검증\n\n"
-    "`total_impurity_pct`는 Cu/Fe/Al 불순물을 동일 가중치로 합산해, 어느 불순물이 "
-    "실제로 회수율 저하를 유발하는지 정보를 가린다. 위 §6 ablation과 동일한 4-케이스 구조로, "
-    "비율 변수가 (a) 단독으로도 신호가 있는지, (b) 이미 검증된 최선 조합(`base_plus_derived`) "
-    "위에 추가로 기여하는지를 함께 검증한다."
+    "- `total_impurity_pct`는 Cu/Fe/Al을 동일 가중치로 합산해 개별 불순물 정보가 가려짐\n"
+    "- §6과 동일한 4-케이스 구조로 (a) 비율 변수 단독 신호 여부, (b) `base_plus_derived` "
+    "위 추가 기여 여부를 검증함"
 ))
 
 cells.append(nbf.v4.new_code_cell(
@@ -220,7 +261,10 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'base_plus_derived_plus_ratios': base_features + derived_features + impurity_ratio_features,\n"
     "}\n\n"
-    "ratio_results = run_ablation_test(pre_impute_df, ratio_feature_sets, TARGET_COLUMNS)\n"
+    "ratio_results = run_ablation_test(\n"
+    "    pre_impute_df.loc[train_i], pre_impute_df.loc[val_i],\n"
+    "    ratio_feature_sets, TARGET_COLUMNS\n"
+    ")\n"
     "pd.DataFrame(ratio_results).T"
 ))
 
@@ -229,87 +273,88 @@ cells.append(nbf.v4.new_code_cell(
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "**결론**: 실측 결과는 다음과 같다 (Validation/Test 둘 다 함께 봐야 하는 이유는 "
-    "바로 아래에서 드러난다).\n\n"
-    "- `base_only` → `base_plus_ratios`: Ni Validation R² 0.4836→0.4695(차이 -0.0141), "
-    "Test R² 0.5157→0.5186(차이 +0.0029) — **Validation은 떨어지고 Test는 오히려 "
-    "오른다.** 방향 자체가 반대라는 게 \"진짜 효과가 아니라 분할에 따라 흔들리는 "
-    "노이즈\"라는 가장 명확한 증거다. Co도 동일(Validation -0.0194, Test +0.0034).\n"
-    "- `base_plus_derived` → `base_plus_derived_plus_ratios`: Ni Validation "
-    "0.7505→0.7428(-0.0077), Test 0.7379→0.7230(-0.0149) — 이번엔 두 지표가 같은 "
-    "방향(하락)이지만 폭이 0.01~0.015 수준으로 작다. Co도 두 지표 모두 -0.002 수준.\n\n"
-    "비교 기준으로, `base_only` → `base_plus_derived`(파생변수 4종 추가)는 Validation·"
-    "Test 양쪽 모두에서 Ni +0.18~0.27, Co +0.18~0.20 수준으로 뚜렷하게, 같은 방향으로 "
-    "상승한다 — 방향이 일치하고 폭도 불순물비율 효과의 10배 이상이라, 파생변수의 기여는 "
-    "질적으로 다른 수준이다. 상관관계 히트맵에서는 Fe_Ni_ratio·Cu_Ni_ratio·Al_Ni_ratio가 "
-    "타겟과 -0.4~-0.5 수준의(결코 약하지 않은) 단순 상관을 보였는데도 모델 R²에는 "
-    "실질적으로 기여하지 못했다는 점이 흥미롭다 — RandomForest는 이미 "
-    "`Cu/Fe/Al_불순물_pct`와 `Ni_함량_pct` 원본 컬럼에 직접 접근할 수 있어서, 비율을 "
-    "미리 계산해주지 않아도 트리 분기로 비슷한 경계를 스스로 학습할 수 있기 때문으로 "
-    "보인다(이는 비율 항이 명시적으로 필요한 선형모델과의 차이점이다). 따라서 이 세 "
-    "비율 변수는 `engineer_features`에는 유지하되(해석용 참고 지표로서의 가치는 있을 "
-    "수 있음), 최종 모델 입력 특성 세트에는 포함하지 않기로 결론짓는다 — \"단순 "
-    "상관계수가 높아 보인다\"는 것과 \"모델에 실제로 기여한다\"는 것은 다른 질문이며, "
-    "후자는 반드시 (Validation과 Test를 같이 보면서) ablation test로 검증해야 "
-    "한다는 것을 보여주는 사례다."
+    "**결론** (Validation 기준 — feature 선택은 Validation만 사용하고 Test는 "
+    "건드리지 않음, §6.2 참고)\n\n"
+    "- `base_only`→`base_plus_ratios`: Validation R² Ni 0.4836→0.4695(-0.0141), "
+    "Co 0.5344→0.5150(-0.0194) — 두 타겟 모두 하락함\n"
+    "- `base_plus_derived`→`base_plus_derived_plus_ratios`: Validation R² Ni "
+    "0.7505→0.7428(-0.0078), Co 0.7168→0.7148(-0.0020) — 파생변수가 이미 있는 "
+    "상태에서도 추가로 하락함\n"
+    "- 비교: `base_only`→`base_plus_derived`(파생변수 4종 추가)는 Ni +0.2669, "
+    "Co +0.1825로 큰 폭 상승함 — 비율 변수(두 경우 모두 하락)와 방향이 다름\n"
+    "- 단순 상관(-0.4~-0.5)은 강하지만 Validation 기준 모델 기여는 오히려 음수임 — "
+    "RandomForest가 원본 불순물·Ni_함량 컬럼으로 이미 유사한 경계를 학습하기 "
+    "때문으로 판단함\n"
+    "- 결론: 비율 변수 3종은 `engineer_features`에는 유지(해석용), 모델 입력 "
+    "특성에는 미포함함 (Validation 기준 두 비교 모두 일관되게 하락)"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
     "### 6.2 Data Leakage를 피하기 위한 평가 설계\n\n"
-    "모델 평가가 공정하려면 Test가 \"진짜 처음 보는 데이터\"로 남아있어야 한다. "
-    "이를 위해 `run_ablation_test`는 두 가지를 지킨다.\n\n"
-    "**1) 시간순 고정 분할 (무작위 섞기 없음)**: 배치는 2025년 1~10월에 걸쳐 순차적으로 "
-    "들어온 데이터다. 이 모델이 실제로 쓰이는 상황(과거 배치로 학습해 앞으로 들어올 "
-    "미래 배치의 회수율을 예측)을 그대로 재현하려면, 무작위로 섞어서 평가하면 안 된다 "
-    "— 그러면 미래 배치로 학습해서 과거 배치를 맞히는 비현실적인 경우가 섞여 들어가고, "
-    "설비 캘리브레이션 드리프트 같은 시간에 따른 변화도 못 잡아낸다. 그래서 배치ID "
-    "순번(분석일자 순서의 근사)으로 정렬한 뒤 앞 70%를 Train, 다음 15%를 Validation, "
-    "마지막 15%를 Test로 고정 분할한다(`_temporal_split`, 294/63/63행).\n\n"
-    "**2) 결측치 대치 통계는 Train에서만 계산**: 분할 이후 Validation·Test 쪽 결측치를 "
-    "채울 때도 중앙값·회귀계수는 Train 데이터로만 계산해서 적용한다(`_fold_safe_prepare`). "
-    "그래야 Validation·Test 행의 값이 자기 자신의 대치값 계산에 섞여 들어가지 않는다. "
-    "초기 구현은 이 순서를 지키지 않고 전체 420행 기준 통계로 먼저 대치한 뒤 무작위 "
-    "5-fold로 나눴는데, 영향을 실측해보니 차이는 0.0014 이하(fold 표준편차 0.02~0.06 "
-    "대비 노이즈 수준)로 작았지만, 작다고 구조적 문제가 없어지는 건 아니라서 두 가지 "
-    "다 구조적으로 고쳐뒀다.\n\n"
-    "Validation은 피처 조합 비교(§6, §6.1의 목적)에 쓰고, Test는 최종 확인용으로 함께 "
-    "보고한다. 이렇게 \"미래를 미리 들여다보는\" 흔한 실수 두 가지(무작위 분할, 분할 전 "
-    "통계 계산)를 모두 피한다."
+    "- Test가 \"처음 보는 데이터\"로 남도록 세 가지를 지킴\n\n"
+    "**1) 시간순 고정 분할 (무작위 섞기 없음)**\n"
+    "- 배치는 2025년 1~10월 순차 데이터임 — 미래 배치로 과거를 맞히는 상황 방지함\n"
+    "- 배치ID 순번 기준 앞 70% Train, 다음 15% Validation, 마지막 15% Test로 고정 "
+    "분할함(`temporal_train_val_test_split`, 294/63/63행)\n\n"
+    "**2) 결측치 대치 통계는 Train에서만 계산**\n"
+    "- Validation·Test 결측치도 Train 통계(중앙값·회귀계수)로만 채움"
+    "(`impute_missing_from_reference`)\n"
+    "- 초기 구현(전체 420행 기준 대치 후 무작위 5-fold)과 비교 시 차이는 0.0014 이하로 "
+    "작았으나, 구조적 문제로 판단해 수정함\n\n"
+    "**3) Feature 선택에는 Test를 보지 않음**\n"
+    "- `run_ablation_test`는 Train/Validation만 받는다 — §6/§6.1의 모든 feature "
+    "비교·선택 판단은 Validation 성능만으로 내린다\n"
+    "- Validation 결과를 보고 feature를 고르는 순간 Test도 같이 봐버리면, Test가 "
+    "더 이상 \"모델이 한 번도 안 본\" 최종평가셋이 아니게 된다 — Test는 분할 "
+    "이후 이 노트북 어디에서도 feature 선택에 쓰이지 않고 남아있음"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 6.3 최종 feature set의 Test 평가 (1회)\n\n"
+    "§6.1에서 Validation만으로 확정한 `base_plus_derived`(조성+공정+파생변수 4종, "
+    "비율 변수 미포함)로 최종 모델을 만든다 — Train+Validation을 합쳐 다시 학습하고 "
+    "(`evaluate_final_model`, `pipeline.py`의 `run()`과 동일한 함수), 지금까지 "
+    "한 번도 feature 선택에 쓰이지 않은 `test_i`를 여기서 처음, 딱 한 번 사용한다."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "final_feature_set = base_features + derived_features\n\n"
+    "final_test_results = evaluate_final_model(\n"
+    "    pre_impute_df.loc[train_i], pre_impute_df.loc[val_i], pre_impute_df.loc[test_i],\n"
+    "    final_feature_set, TARGET_COLUMNS\n"
+    ")\n"
+    "pd.DataFrame(final_test_results).T"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
     "## 7. 심층 인터뷰 답변\n\n"
     "**1) 실제 공정 데이터 품질 문제를 어떻게 식별·처리했는가?**\n\n"
-    "데이터사전에 정의된 정상 범위를 벗어나는 값(`Ni_함량_pct=999.0`, `침출온도_C=-5.0`, "
-    "`황산투입량_L=15000`)을 물리적으로 불가능한 이상치로 식별해 `flag_outliers`에서 NaN으로 "
-    "치환했다. 이후 남은 결측(조성 6~9%, 공정조건)은 — 원료등급과의 카이제곱 독립성 "
-    "검정(p>0.05) 및 컬럼 간 결측 동시발생 상관관계(~0) 확인 결과 특정 조건에 치우친 "
-    "체계적 패턴이 발견되지 않아 — 변수 성격에 따라 원료등급별 중앙값, 회귀 기반, "
-    "배치ID 순서 기반 보간으로 구분 처리했다 (설계 문서 §4).\n\n"
+    "- 데이터사전 정상범위 벗어난 값(`Ni_함량_pct=999.0`, `침출온도_C=-5.0`, "
+    "`황산투입량_L=15000`)을 물리적 불가능 이상치로 식별, `replace_outliers_with_nan`에서 NaN 치환함\n"
+    "- 남은 결측(6.9~10.7%)은 §1.1.5에서 카이제곱 독립성 검정, 결측 동시발생 "
+    "상관으로 패턴을 확인함 — 결측 플래그 간 상관은 전부 0에 가까워 여러 컬럼이 "
+    "동시에 결측되는 패턴은 없음. 다만 `Mn_함량_pct`·`Cu_불순물_pct`는 원료등급과 "
+    "결측 여부가 통계적으로 독립이 아님(p<0.05) — 완전 무작위(MCAR)는 아니지만, "
+    "두 컬럼 다 조성 변수라 이미 등급별 그룹 중앙값으로 대치하고 있어 이 편향이 "
+    "대치 방식에 반영되어 있음\n"
+    "- 변수 성격별로 원료등급별 중앙값, 회귀 기반, 배치ID 순서 기반 보간으로 구분 "
+    "처리함 (설계 문서 §4)\n\n"
     "**2) 특성공학 과정에서 도메인 지식을 어떻게 활용했는가?**\n\n"
-    "산-광석비, 침출강도(온도×시간), 총불순물, 목표금속 순도비는 모두 습식제련 침출 공정의 "
-    "화학양론·반응속도론적 지식에서 도출했다 (설계 문서 §6). 위 ablation test로 파생변수·원료등급 "
-    "포함 시 R²/RMSE가 실제로 개선되는지 정량 확인했다.\n\n"
+    "- 산-광석비, 침출강도(온도×시간), 총불순물, 목표금속 순도비는 습식제련 침출 "
+    "공정의 화학양론·반응속도론적 지식에서 도출함 (설계 문서 §6)\n"
+    "- ablation test로 파생변수·원료등급 포함 시 R²/RMSE 개선 여부를 정량 확인함\n\n"
     "**3) 데이터 불균형 문제가 있었다면 어떻게 해결했는가?**\n\n"
-    "전체 420행(중복 배치 제거 후) 기준 `원료등급`(A/B/C) 분포는 B 38.6%, A 35.2%, C "
-    "26.2%로(아래 셀 실행 결과), 가장 적은 클래스(C)도 약 26%를 차지해 특정 클래스가 "
-    "극단적으로 희소한 심각한 불균형은 아니라고 판단했다. 설계 문서 §9에서는 구현 단계의 "
-    "실제 분포를 보고 불균형 여부와 계층적 샘플링(stratified split) 적용 여부를 결정하기로 "
-    "했는데, 실측 결과 클래스 간 비율 차이가 26~39% 수준으로 완만해 SMOTE·계층적 "
-    "샘플링·클래스 가중치 등 별도의 불균형 보정은 적용하지 않기로 결론지었다. 다만 위 "
-    "ablation test 결과(시간순 Train/Validation/Test 분할, §6.2 참고)를 보면 `base_only`"
-    "(Ni Validation R²=0.4836, Test R²=0.5157) 대비 `base_plus_grade`(Ni Validation "
-    "R²=0.4618, Test R²=0.5152)는 Validation·Test가 서로 다른 신호를 준다(Validation은 "
-    "0.02 하락, Test는 거의 그대로) — Co는 아예 방향이 반대다(Validation -0.0023, Test "
-    "+0.0110). 두 독립적인 홀드아웃에서 방향조차 일관되지 않는다는 건 실제 효과가 아니라 "
-    "분할에 따라 흔들리는 노이즈라는 뜻이다 — `원료등급`을 모델 입력 특성으로 그대로 "
-    "추가하는 것 자체는 회귀 성능에 안정적인 영향을 주지 않는다. 그럼에도 `원료등급`은 "
-    "Task 5의 등급별 중앙값 보간(grade-based median imputation)에서 그룹핑 키로 쓰이므로 "
-    "컬럼 자체는 계속 유지한다. 반면 산-광석비·침출강도·총불순물·목표금속 순도비 등 "
-    "파생변수는 `base_plus_derived`에서 R²를 Ni Validation 0.4836→0.7505·Test "
-    "0.5157→0.7379, Co Validation 0.5344→0.7168·Test 0.5970→0.7759 수준으로 Validation·"
-    "Test 양쪽 모두 뚜렷하고 일관되게 끌어올려, 현재 데이터에서 회귀 성능에 실질적으로 "
-    "기여하는 것은 `원료등급`이 아니라 파생변수 쪽임을 ablation test가 보여준다."
+    "- 전체 420행 기준 `원료등급` 분포: B 38.6%, A 35.2%, C 26.2% — 최소 클래스도 "
+    "26%로 심각한 불균형 아님\n"
+    "- 클래스 간 비율 차이 26~39% 수준이라 SMOTE·계층적 샘플링·클래스 가중치는 "
+    "미적용함\n"
+    "- ablation test 결과(Validation 기준): `base_only`→`base_plus_grade` Ni "
+    "0.4836→0.4618(-0.0218), Co 0.5344→0.5321(-0.0022) — 두 타겟 모두 하락, "
+    "`원료등급`의 안정적 성능 기여 없음\n"
+    "- 다만 `원료등급`은 등급별 중앙값 보간의 그룹핑 키로 쓰여 컬럼은 유지함\n"
+    "- 파생변수는 `base_only`→`base_plus_derived`에서 Ni 0.4836→0.7505(+0.2669), "
+    "Co 0.5344→0.7168(+0.1825)로 뚜렷하게 상승 — 실질적 성능 기여는 원료등급이 "
+    "아니라 파생변수 쪽임"
 ))
 
 cells.append(nbf.v4.new_code_cell(

@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from src.splitting import temporal_train_val_test_split
 
@@ -37,3 +38,17 @@ def test_temporal_split_works_on_unsorted_input():
     batch_seq = shuffled["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
     assert batch_seq.loc[train_i].max() < batch_seq.loc[val_i].min()
     assert batch_seq.loc[val_i].max() < batch_seq.loc[test_i].min()
+
+
+def test_temporal_split_rejects_fractions_summing_to_one_or_more():
+    df = _make_batch_df(n=10)
+
+    with pytest.raises(ValueError):
+        temporal_train_val_test_split(df, train_frac=0.7, val_frac=0.3)
+
+
+def test_temporal_split_rejects_non_positive_fractions():
+    df = _make_batch_df(n=10)
+
+    with pytest.raises(ValueError):
+        temporal_train_val_test_split(df, train_frac=0.0, val_frac=0.5)

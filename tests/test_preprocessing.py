@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.preprocessing import load_raw, clean_schema
+from src.preprocessing import load_raw, clean_schema, resolve_duplicate_batches
 
 
 def test_load_raw_csv(tmp_path):
@@ -93,3 +93,45 @@ def test_clean_schema_flags_duplicate_batch_ids():
     result = clean_schema(df)
 
     assert result["is_duplicate_batch"].tolist() == [True, True, False]
+
+
+def test_resolve_duplicate_batches_drops_exact_duplicates_keeping_first():
+    df = pd.DataFrame({
+        "배치ID": ["BP-2025-0001", "BP-2025-0001", "BP-2025-0002"],
+        "원료등급": ["A", "A", "B"],
+        "Ni_함량_pct": [10.0, 10.0, 20.0],
+        "is_duplicate_batch": [True, True, False],
+    })
+
+    result = resolve_duplicate_batches(df)
+
+    assert result["배치ID"].tolist() == ["BP-2025-0001", "BP-2025-0002"]
+    assert result["is_conflicting_duplicate"].tolist() == [False, False]
+
+
+def test_resolve_duplicate_batches_keeps_conflicting_duplicates_and_flags_them():
+    df = pd.DataFrame({
+        "배치ID": ["BP-2025-0001", "BP-2025-0001", "BP-2025-0002"],
+        "원료등급": ["A", "B", "C"],
+        "Ni_함량_pct": [10.0, 15.0, 20.0],
+        "is_duplicate_batch": [True, True, False],
+    })
+
+    result = resolve_duplicate_batches(df)
+
+    assert len(result) == 3
+    assert result["is_conflicting_duplicate"].tolist() == [True, True, False]
+
+
+def test_resolve_duplicate_batches_treats_matching_nan_as_equal():
+    df = pd.DataFrame({
+        "배치ID": ["BP-2025-0001", "BP-2025-0001"],
+        "원료등급": ["A", "A"],
+        "Ni_함량_pct": [float("nan"), float("nan")],
+        "is_duplicate_batch": [True, True],
+    })
+
+    result = resolve_duplicate_batches(df)
+
+    assert len(result) == 1
+    assert result["is_conflicting_duplicate"].tolist() == [False]
