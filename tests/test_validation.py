@@ -3,8 +3,11 @@ import numpy as np
 import pandas as pd
 
 from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS
+from src.splitting import temporal_train_val_test_split
+import pytest
+
 from src.validation import check_ranges, check_missing, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
-from src.validation import run_ablation_test
+from src.validation import run_ablation_test, evaluate_final_model
 from src.validation import plot_ablation_results, plot_grade_distribution
 
 
@@ -124,32 +127,66 @@ def test_plot_correlation_heatmap_creates_png(tmp_path):
 
 def test_run_ablation_test_returns_r2_and_rmse_per_case_and_target():
     df = _make_ablation_fixture()
+    train_i, val_i, test_i = temporal_train_val_test_split(df)
 
     feature_sets = {
         "base": COMPOSITION_COLUMNS,
         "base_plus_process": COMPOSITION_COLUMNS + PROCESS_COLUMNS,
     }
 
-    results = run_ablation_test(df, feature_sets, ["Ni_회수율_pct"])
+    results = run_ablation_test(
+        df.loc[train_i], df.loc[val_i], feature_sets, ["Ni_회수율_pct"]
+    )
 
     assert set(results.keys()) == {
         ("base", "Ni_회수율_pct"),
         ("base_plus_process", "Ni_회수율_pct"),
     }
     for metrics in results.values():
-        for key in ["val_r2", "val_rmse", "val_mae", "test_r2", "test_rmse", "test_mae"]:
+        for key in ["val_r2", "val_rmse", "val_mae"]:
             assert key in metrics
             assert isinstance(metrics[key], float)
 
 
 def test_run_ablation_test_encodes_categorical_features():
     df = _make_ablation_fixture()
+    train_i, val_i, test_i = temporal_train_val_test_split(df)
 
     feature_sets = {"with_grade": COMPOSITION_COLUMNS + ["원료등급"]}
 
-    results = run_ablation_test(df, feature_sets, ["Ni_회수율_pct"])
+    results = run_ablation_test(
+        df.loc[train_i], df.loc[val_i], feature_sets, ["Ni_회수율_pct"]
+    )
 
     assert ("with_grade", "Ni_회수율_pct") in results
+
+
+def test_evaluate_final_model_returns_test_metrics_per_target():
+    df = _make_ablation_fixture()
+    train_i, val_i, test_i = temporal_train_val_test_split(df)
+
+    results = evaluate_final_model(
+        df.loc[train_i], df.loc[val_i], df.loc[test_i],
+        COMPOSITION_COLUMNS + PROCESS_COLUMNS, ["Ni_회수율_pct", "Co_회수율_pct"]
+    )
+
+    assert set(results.keys()) == {"Ni_회수율_pct", "Co_회수율_pct"}
+    for metrics in results.values():
+        for key in ["test_r2", "test_rmse", "test_mae"]:
+            assert key in metrics
+            assert isinstance(metrics[key], float)
+
+
+def test_evaluate_final_model_raises_when_target_has_missing_values():
+    df = _make_ablation_fixture()
+    train_i, val_i, test_i = temporal_train_val_test_split(df)
+    df.loc[df.index[0], "Ni_회수율_pct"] = None
+
+    with pytest.raises(ValueError):
+        evaluate_final_model(
+            df.loc[train_i], df.loc[val_i], df.loc[test_i],
+            COMPOSITION_COLUMNS, ["Ni_회수율_pct"]
+        )
 
 
 def test_plot_ablation_results_creates_png(tmp_path):
