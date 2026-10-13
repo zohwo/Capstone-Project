@@ -70,17 +70,38 @@ def interpolate_analysis_date(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def impute_missing(df: pd.DataFrame) -> pd.DataFrame:
-    """조성 변수는 원료등급 그룹별 중앙값, 공정조건은 전체 중앙값으로 대치한다."""
-    df = df.copy()
+def impute_missing_from_reference(
+    reference_df: pd.DataFrame, target_df: pd.DataFrame
+) -> pd.DataFrame:
+    """reference_df의 통계(그룹별/전체 중앙값, 회귀계수)만으로 target_df의 결측치를 대치한다.
+
+    reference_df와 target_df가 같은 데이터프레임이면 전체 데이터 기준 대치가 되고,
+    reference_df가 Train 구간이고 target_df가 Validation/Test 구간이면 Train 통계만
+    새어나가는 leak-safe 대치가 된다. 분석일자 보간(interpolate_analysis_date)은
+    reference/target 분리가 의미 없는 위치 기반 로직이라 여기 포함하지 않는다.
+    """
+    out = target_df.copy()
 
     for col in COMPOSITION_COLUMNS:
-        df[col] = df.groupby("원료등급")[col].transform(lambda s: s.fillna(s.median()))
+        group_medians = reference_df.groupby("원료등급")[col].median()
+        overall_median = reference_df[col].median()
+        missing = out[col].isna()
+        if missing.any():
+            out.loc[missing, col] = (
+                out.loc[missing, "원료등급"].map(group_medians).fillna(overall_median)
+            )
 
     for col in PROCESS_COLUMNS:
-        df[col] = df[col].fillna(df[col].median())
+        out[col] = out[col].fillna(reference_df[col].median())
 
-    df = impute_acid_volume(df)
-    df = interpolate_analysis_date(df)
+    ref_missing = reference_df["황산투입량_L"].isna()
+    ref_acid = reference_df.loc[~ref_missing, ["원료투입량_kg", "황산투입량_L"]].dropna()
+    if not ref_acid.empty:
+        model = LinearRegression().fit(ref_acid[["원료투입량_kg"]], ref_acid["황산투입량_L"])
+        acid_missing = out["황산투입량_L"].isna()
+        if acid_missing.any():
+            out.loc[acid_missing, "황산투입량_L"] = model.predict(
+                out.loc[acid_missing, ["원료투입량_kg"]]
+            )
 
-    return df
+    return out

@@ -17,8 +17,9 @@ cells.append(nbf.v4.new_code_cell(
     "import pandas as pd\n"
     "from pathlib import Path\n\n"
     "from src.preprocessing import load_raw, clean_schema\n"
-    "from src.imputation import flag_outliers, impute_missing\n"
+    "from src.imputation import flag_outliers, impute_missing_from_reference, interpolate_analysis_date\n"
     "from src.features import engineer_features\n"
+    "from src.splitting import temporal_train_val_test_split\n"
     "from src.validation import (\n"
     "    check_ranges,\n"
     "    plot_missing_before_after,\n"
@@ -59,7 +60,36 @@ cells.append(nbf.v4.new_code_cell(
 
 cells.append(nbf.v4.new_code_cell(
     "outlier_flagged_df = flag_outliers(clean_df)\n"
-    "imputed_df = impute_missing(outlier_flagged_df)\n"
+    "outlier_flagged_df.shape"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 1.2 시간순 Train/Validation/Test 분할\n\n"
+    "배치는 2025년 1~10월에 걸쳐 순차적으로 들어온 데이터이고, 이 모델이 실제로 쓰이는 "
+    "상황(과거 배치로 학습해 앞으로 들어올 미래 배치를 예측)을 재현하려면 무작위로 섞어서 "
+    "나누면 안 된다. 배치ID 순번(분석일자 순서의 근사)으로 정렬한 뒤 앞 70%를 Train, "
+    "다음 15%를 Validation, 마지막 15%를 Test로 고정 분할한다 (`src/pipeline.py`의 "
+    "`run()`과 동일한 분할)."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "train_i, val_i, test_i = temporal_train_val_test_split(outlier_flagged_df)\n"
+    "print(f'Train: {len(train_i)}행 / Validation: {len(val_i)}행 / Test: {len(test_i)}행')"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 1.3 Train 통계 기반 결측치 대치 + 파생변수 생성\n\n"
+    "Validation·Test 구간의 결측치도 Train 구간 통계(그룹별/전체 중앙값, 회귀계수)로만 "
+    "채운다 — Train이 자기 자신을 대치하는 것은 괜찮지만(원래 자기 데이터), "
+    "Validation·Test는 Train 통계만 적용받고 자기 자신의 값은 대치 계산에 전혀 쓰이지 "
+    "않는다(`impute_missing_from_reference`). 분석일자 보간은 모델 피처로 쓰이지 않는 "
+    "위치 기반 로직이라 구분 없이 처리한다."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "train_df = outlier_flagged_df.loc[train_i]\n"
+    "imputed_df = impute_missing_from_reference(train_df, outlier_flagged_df)\n"
+    "imputed_df = interpolate_analysis_date(imputed_df)\n"
     "final_df = engineer_features(imputed_df)\n"
     "final_df.head()"
 ))

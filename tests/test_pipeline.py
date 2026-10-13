@@ -46,3 +46,26 @@ def test_run_adds_all_engineered_columns(tmp_path):
         "is_duplicate_batch",
     ]:
         assert col in result.columns
+
+
+def test_run_adds_temporal_split_column(tmp_path):
+    output_path = tmp_path / "cleaned_features.csv"
+
+    result = run(RAW_PATH, output_path)
+
+    assert "split" in result.columns
+    assert set(result["split"].unique()) == {"train", "validation", "test"}
+    assert result["split"].value_counts().to_dict() == {
+        "train": 294,
+        "validation": 63,
+        "test": 63,
+    }
+
+    # split은 배치ID 순서를 따라야 한다 (train이 가장 이르고 test가 가장 늦음)
+    batch_seq = result["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
+    train_max = batch_seq[result["split"] == "train"].max()
+    val_min = batch_seq[result["split"] == "validation"].min()
+    val_max = batch_seq[result["split"] == "validation"].max()
+    test_min = batch_seq[result["split"] == "test"].min()
+    assert train_max < val_min
+    assert val_max < test_min
