@@ -15,7 +15,6 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.model_selection import KFold
 
 from src.config import COMPOSITION_COLUMNS, NORMAL_RANGES, PROCESS_COLUMNS
 from src.features import engineer_features
@@ -137,83 +136,100 @@ def _fold_safe_prepare(train_df: pd.DataFrame, apply_df: pd.DataFrame) -> pd.Dat
     return engineer_features(out)
 
 
+def _temporal_split(
+    df: pd.DataFrame, train_frac: float = 0.7, val_frac: float = 0.15
+) -> tuple[pd.Index, pd.Index, pd.Index]:
+    """배치ID 순번(분석일자 순서의 근사)으로 시간순 정렬한 뒤 Train/Validation/Test
+    구간으로 고정 분할한다 (무작위 섞기 없음 — 미래 배치로 과거를 평가하지 않도록).
+    """
+    batch_seq = df["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
+    ordered_index = batch_seq.sort_values().index
+
+    n = len(ordered_index)
+    train_end = int(n * train_frac)
+    val_end = int(n * (train_frac + val_frac))
+
+    return ordered_index[:train_end], ordered_index[train_end:val_end], ordered_index[val_end:]
+
+
 def run_ablation_test(
     df: pd.DataFrame,
     feature_sets: dict,
     target_columns: list,
-    n_splits: int = 5,
+    train_frac: float = 0.7,
+    val_frac: float = 0.15,
     random_state: int = 42,
 ) -> dict:
-    """피처 조합별로 교차검증 R²/RMSE를 계산해 파생변수·원료등급의 성능 기여를 정량 비교한다.
+    """피처 조합별로 시간순 Train/Validation/Test 성능을 비교해 파생변수·원료등급의
+    성능 기여를 정량 비교한다.
 
-    df는 결측치 대치 전(flag_outliers까지만 적용된) 데이터를 받는다. 각 fold마다 train
-    구간의 통계로만 결측치를 대치하고 파생변수를 만들어 train/test에 각각 적용하므로,
-    fold 간 data leakage 없이 평가한다.
+    df는 결측치 대치 전(flag_outliers까지만 적용된) 데이터를 받는다. 배치ID 순번(분석일자
+    순서의 근사)으로 시간순 정렬한 뒤, Train 구간 통계로만 결측치를 대치해 Validation/Test
+    구간에 적용하므로 미래 데이터를 미리 들여다보지 않는 leak-safe 평가가 된다. Validation은
+    피처 조합 간 비교(이 함수의 목적)에 쓰고, Test는 최종 확인용으로 함께 보고한다.
     """
+    train_i, val_i, test_i = _temporal_split(df, train_frac, val_frac)
+
     results = {}
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    fold_indices = list(kf.split(df))
-
     for case_name, feature_columns in feature_sets.items():
+        train_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[train_i])
+        val_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[val_i])
+        test_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[test_i])
+
+        X_train = pd.get_dummies(train_prepared[feature_columns])
+        X_val = pd.get_dummies(val_prepared[feature_columns]).reindex(
+            columns=X_train.columns, fill_value=0
+        )
+        X_test = pd.get_dummies(test_prepared[feature_columns]).reindex(
+            columns=X_train.columns, fill_value=0
+        )
+
         for target in target_columns:
-            r2_scores = []
-            rmse_scores = []
+            y_train = df.loc[train_i, target]
+            y_val = df.loc[val_i, target]
+            y_test = df.loc[test_i, target]
 
-            for train_pos, test_pos in fold_indices:
-                train_i = df.index[train_pos]
-                test_i = df.index[test_pos]
+            model = RandomForestRegressor(random_state=random_state)
+            model.fit(X_train, y_train)
 
-                train_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[train_i])
-                test_prepared = _fold_safe_prepare(df.loc[train_i], df.loc[test_i])
-
-                X_train = pd.get_dummies(train_prepared[feature_columns])
-                X_test = pd.get_dummies(test_prepared[feature_columns]).reindex(
-                    columns=X_train.columns, fill_value=0
-                )
-                y_train = df.loc[train_i, target]
-                y_test = df.loc[test_i, target]
-
-                model = RandomForestRegressor(random_state=random_state)
-                model.fit(X_train, y_train)
-                preds = model.predict(X_test)
-
-                r2_scores.append(r2_score(y_test, preds))
-                rmse_scores.append(float(np.sqrt(mean_squared_error(y_test, preds))))
+            val_preds = model.predict(X_val)
+            test_preds = model.predict(X_test)
 
             results[(case_name, target)] = {
-                "r2_mean": float(np.mean(r2_scores)),
-                "r2_std": float(np.std(r2_scores)),
-                "rmse_mean": float(np.mean(rmse_scores)),
+                "val_r2": float(r2_score(y_val, val_preds)),
+                "val_rmse": float(np.sqrt(mean_squared_error(y_val, val_preds))),
+                "test_r2": float(r2_score(y_test, test_preds)),
+                "test_rmse": float(np.sqrt(mean_squared_error(y_test, test_preds))),
             }
 
     return results
 
 
 def plot_ablation_results(results: dict, output_dir: str | Path) -> Path:
-    """ablation test 결과(R² 평균 ± fold 표준편차)를 케이스별 막대그래프로 저장한다.
+    """ablation test 결과(Validation/Test R²)를 케이스별 막대그래프로 저장한다.
 
-    오차막대(fold 표준편차)를 같이 그려서, 케이스 간 R² 차이가 fold 노이즈보다
-    큰 실제 효과인지 한눈에 비교할 수 있게 한다.
+    Validation과 Test를 나란히 보여줘서, 케이스 간 R² 차이가 두 구간 모두에서
+    일관되게 나타나는 실제 효과인지 한눈에 비교할 수 있게 한다.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     case_names = list(dict.fromkeys(case for case, _ in results.keys()))
     target_names = list(dict.fromkeys(target for _, target in results.keys()))
+    series = [(target, split) for target in target_names for split in ("val", "test")]
 
-    fig, ax = plt.subplots(figsize=(max(6, len(case_names) * 1.5), 5))
+    fig, ax = plt.subplots(figsize=(max(6, len(case_names) * 1.8), 5))
     x = range(len(case_names))
-    width = 0.8 / len(target_names)
+    width = 0.8 / len(series)
 
-    for i, target in enumerate(target_names):
-        means = [results[(case, target)]["r2_mean"] for case in case_names]
-        stds = [results[(case, target)]["r2_std"] for case in case_names]
-        offsets = [xi + (i - (len(target_names) - 1) / 2) * width for xi in x]
-        ax.bar(offsets, means, width=width, yerr=stds, capsize=4, label=target)
+    for i, (target, split) in enumerate(series):
+        values = [results[(case, target)][f"{split}_r2"] for case in case_names]
+        offsets = [xi + (i - (len(series) - 1) / 2) * width for xi in x]
+        ax.bar(offsets, values, width=width, label=f"{target} ({split})")
 
     ax.set_xticks(list(x))
     ax.set_xticklabels(case_names, rotation=20, ha="right")
-    ax.set_ylabel("R² (mean ± fold std)")
+    ax.set_ylabel("R²")
     ax.legend()
     fig.tight_layout()
 
