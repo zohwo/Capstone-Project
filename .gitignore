@@ -1,11 +1,29 @@
-.superpowers/
+# 파이썬 캐시/바이트코드
 __pycache__/
 *.pyc
-.ipynb_checkpoints/
+*.pyo
+
+# 가상환경 
 .venv/
 venv/
-.DS_Store
+
+# 테스트/노트북 실행 캐시
+.pytest_cache/
+.ipynb_checkpoints/
+notebooks/executed_check.ipynb
+
+# 원본 데이터(회사 제공, 비공개) 및 파이프라인 생성물 
 data/
-data/raw/
-data/processed/
 reports/figures/
+
+# 작업용 스크래치 
+.superpowers/
+
+# 에디터/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 환경변수/비밀값 
+.env
