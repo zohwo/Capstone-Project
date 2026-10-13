@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS
-from src.validation import check_ranges, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
+from src.validation import check_ranges, check_missing, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
 from src.validation import run_ablation_test
 from src.validation import plot_ablation_results, plot_grade_distribution
 
@@ -43,6 +43,36 @@ def test_check_ranges_reports_out_of_range_row_indices():
     violations = check_ranges(df, ranges={"Ni_함량_pct": (8, 30)})
 
     assert violations == {"Ni_함량_pct": [1]}
+
+
+def test_check_missing_counts_missing_values_per_column():
+    df = pd.DataFrame({
+        "Ni_함량_pct": [10.0, None, 25.0, None],
+        "Co_함량_pct": [5.0, 6.0, 7.0, 8.0],
+    })
+
+    missing = check_missing(df)
+
+    assert missing == {"Ni_함량_pct": 2}
+
+
+def test_check_missing_returns_empty_dict_when_nothing_missing():
+    df = pd.DataFrame({"Ni_함량_pct": [10.0, 20.0, 25.0]})
+
+    missing = check_missing(df)
+
+    assert missing == {}
+
+
+def test_check_missing_can_be_scoped_to_specific_columns():
+    df = pd.DataFrame({
+        "Ni_함량_pct": [10.0, None],
+        "비고": ["무시해야 함", None],
+    })
+
+    missing = check_missing(df, columns=["Ni_함량_pct"])
+
+    assert missing == {"Ni_함량_pct": 1}
 
 
 def test_check_ranges_returns_empty_dict_when_all_within_range():
