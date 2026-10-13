@@ -14,6 +14,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
       회수율 저하의 실제 원인인지"를 가린다 — 개별 비율로 분리해 각 불순물의
       영향을 독립적으로 볼 수 있게 한다.
     """
+    
     df = df.copy()
 
     df["acid_to_ore_ratio"] = df["황산투입량_L"] / df["원료투입량_kg"]
