@@ -18,8 +18,11 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
     배치를 평가하는 `src/validation.py`의 `run_ablation_test`와 동일한 원칙이다.
     """
     df = load_raw(input_path)
-    df = clean_schema(df)
 
+    raw_violations = check_ranges(df)
+    print(f"raw 데이터 정상범위 위반: {raw_violations if raw_violations else '없음'}")
+
+    df = clean_schema(df)
     df = df.drop_duplicates(subset="배치ID", keep="first")
     df = flag_outliers(df)
 
@@ -28,6 +31,8 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
 
     pre_impute_df = df.copy()
 
+    df = interpolate_analysis_date(df)
+
     train_i, val_i, test_i = temporal_train_val_test_split(df)
     df["split"] = "train"
     df.loc[val_i, "split"] = "validation"
@@ -35,11 +40,14 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
 
     train_df = df.loc[train_i]
     df = impute_missing_from_reference(train_df, df)
-    df = interpolate_analysis_date(df)
     df = engineer_features(df)
 
+    # flag_outliers가 범위 밖 값을 전부 NaN으로 치환하고 대치까지 끝난 상태이므로,
+    # 여기서 위반이 발견되면 대치/파생변수 로직에 버그가 있다는 뜻이다 — 잘못된
+    # 데이터를 CSV로 내보내지 않도록 경고만 찍지 않고 즉시 중단한다.
     violations = check_ranges(df)
     assert not violations, f"정상범위 위반 발견 - {violations}"
+    print("정제 후 정상범위 위반: 없음")
 
     base_features = COMPOSITION_COLUMNS + PROCESS_COLUMNS
     ablation_results = run_ablation_test(

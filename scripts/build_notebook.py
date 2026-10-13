@@ -39,6 +39,22 @@ cells.append(nbf.v4.new_markdown_cell("## 1. 원본 로드 및 정제"))
 
 cells.append(nbf.v4.new_code_cell(
     "raw_df = load_raw(RAW_PATH)\n"
+    "raw_df.shape"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 1.0 정제 전 정상범위 위반 확인\n\n"
+    "정제를 시작하기 **전**에도 한 번 확인해서, 정제 후(§5)와 직접 대비해본다 — "
+    "\"처리 전엔 이만큼 위반이 있었는데 처리 후엔 0건\"이라는 전/후 대비가 정제가 "
+    "실제로 작동했다는 가장 직접적인 증거가 된다."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "raw_violations = check_ranges(raw_df)\n"
+    "print('raw 데이터 정상범위 위반:', raw_violations if raw_violations else '없음')"
+))
+
+cells.append(nbf.v4.new_code_cell(
     "clean_df = clean_schema(raw_df)\n"
     "clean_df.shape"
 ))
@@ -70,7 +86,21 @@ cells.append(nbf.v4.new_code_cell(
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "### 1.2 시간순 Train/Validation/Test 분할\n\n"
+    "### 1.2 분석일자 보간\n\n"
+    "분석일자는 모델 피처로 쓰이지 않는 위치 기반 로직(배치ID 순서로 보간)이라 "
+    "train/val/test 구분이 필요 없다 — 그래서 분할(§1.3) **전에** 전체 데이터로 "
+    "한 번에 처리한다. ablation test에 쓰는 `pre_impute_df`는 이 보간 **이전** "
+    "시점(`flag_outliers`까지만 적용된) 스냅샷이라 서로 영향을 주지 않는다."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "pre_impute_df = outlier_flagged_df.copy()\n"
+    "interpolated_df = interpolate_analysis_date(outlier_flagged_df)\n"
+    "print('분석일자 결측:', interpolated_df['분석일자'].isna().sum())"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 1.3 시간순 Train/Validation/Test 분할\n\n"
     "배치는 2025년 1~10월에 걸쳐 순차적으로 들어온 데이터이고, 이 모델이 실제로 쓰이는 "
     "상황(과거 배치로 학습해 앞으로 들어올 미래 배치를 예측)을 재현하려면 무작위로 섞어서 "
     "나누면 안 된다. 배치ID 순번(분석일자 순서의 근사)으로 정렬한 뒤 앞 70%를 Train, "
@@ -79,23 +109,21 @@ cells.append(nbf.v4.new_markdown_cell(
 ))
 
 cells.append(nbf.v4.new_code_cell(
-    "train_i, val_i, test_i = temporal_train_val_test_split(outlier_flagged_df)\n"
+    "train_i, val_i, test_i = temporal_train_val_test_split(interpolated_df)\n"
     "print(f'Train: {len(train_i)}행 / Validation: {len(val_i)}행 / Test: {len(test_i)}행')"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(
-    "### 1.3 Train 통계 기반 결측치 대치 + 파생변수 생성\n\n"
+    "### 1.4 Train 통계 기반 결측치 대치 + 파생변수 생성\n\n"
     "Validation·Test 구간의 결측치도 Train 구간 통계(그룹별/전체 중앙값, 회귀계수)로만 "
     "채운다 — Train이 자기 자신을 대치하는 것은 괜찮지만(원래 자기 데이터), "
     "Validation·Test는 Train 통계만 적용받고 자기 자신의 값은 대치 계산에 전혀 쓰이지 "
-    "않는다(`impute_missing_from_reference`). 분석일자 보간은 모델 피처로 쓰이지 않는 "
-    "위치 기반 로직이라 구분 없이 처리한다."
+    "않는다(`impute_missing_from_reference`)."
 ))
 
 cells.append(nbf.v4.new_code_cell(
-    "train_df = outlier_flagged_df.loc[train_i]\n"
-    "imputed_df = impute_missing_from_reference(train_df, outlier_flagged_df)\n"
-    "imputed_df = interpolate_analysis_date(imputed_df)\n"
+    "train_df = interpolated_df.loc[train_i]\n"
+    "imputed_df = impute_missing_from_reference(train_df, interpolated_df)\n"
     "final_df = engineer_features(imputed_df)\n"
     "final_df.head()"
 ))
@@ -103,7 +131,7 @@ cells.append(nbf.v4.new_code_cell(
 cells.append(nbf.v4.new_markdown_cell("## 2. 결측치 처리 전/후 비교"))
 
 cells.append(nbf.v4.new_code_cell(
-    "plot_missing_before_after(outlier_flagged_df, imputed_df, FIGURES_DIR)"
+    "plot_missing_before_after(pre_impute_df, imputed_df, FIGURES_DIR)"
 ))
 
 cells.append(nbf.v4.new_markdown_cell("## 3. 이상치 제거 전/후 분포"))
@@ -143,10 +171,11 @@ cells.append(nbf.v4.new_markdown_cell(
 
 cells.append(nbf.v4.new_markdown_cell(
     "## 5. 정합성 검증\n\n"
-    "`src/pipeline.py`의 `run()`은 여기서 위반이 발견되면 `assert`로 즉시 중단한다 "
-    "(`flag_outliers`가 범위 밖 값을 이미 다 걸러낸 뒤라, 위반이 남아있다면 그건 "
-    "데이터 문제가 아니라 대치·파생변수 로직의 버그이기 때문이다). 이 노트북은 탐색용이라 "
-    "멈추지 않고 결과만 출력한다."
+    "§1.0에서 확인한 raw 데이터의 위반 건수와 비교해보면 정제가 실제로 작동했는지 "
+    "바로 드러난다. `src/pipeline.py`의 `run()`은 여기서 위반이 발견되면 `assert`로 "
+    "즉시 중단한다 (`flag_outliers`가 범위 밖 값을 이미 다 걸러낸 뒤라, 위반이 남아있다면 "
+    "그건 데이터 문제가 아니라 대치·파생변수 로직의 버그이기 때문이다). 이 노트북은 "
+    "탐색용이라 멈추지 않고 결과만 출력한다."
 ))
 
 cells.append(nbf.v4.new_code_cell(
@@ -167,7 +196,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'all_features': base_features + ['원료등급'] + derived_features,\n"
     "}\n\n"
-    "results = run_ablation_test(outlier_flagged_df, feature_sets, TARGET_COLUMNS)\n"
+    "results = run_ablation_test(pre_impute_df, feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(results).T"
 ))
 
@@ -191,7 +220,7 @@ cells.append(nbf.v4.new_code_cell(
     "    'base_plus_derived': base_features + derived_features,\n"
     "    'base_plus_derived_plus_ratios': base_features + derived_features + impurity_ratio_features,\n"
     "}\n\n"
-    "ratio_results = run_ablation_test(outlier_flagged_df, ratio_feature_sets, TARGET_COLUMNS)\n"
+    "ratio_results = run_ablation_test(pre_impute_df, ratio_feature_sets, TARGET_COLUMNS)\n"
     "pd.DataFrame(ratio_results).T"
 ))
 
