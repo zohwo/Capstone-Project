@@ -64,6 +64,14 @@ def plot_missing_before_after(
     plt.close(fig)
     return output_path
 
+def check_missing(df: pd.DataFrame, columns: list | None = None) -> dict:
+    """컬럼별 결측치 개수를 센다.
+
+    반환값: {컬럼명: 결측 개수} — 결측이 있는 컬럼만 포함, 없으면 빈 dict.
+    """
+    columns = columns if columns is not None else df.columns
+    missing = df[columns].isna().sum()
+    return {col: int(count) for col, count in missing.items() if count > 0}
 
 def plot_distributions(df: pd.DataFrame, columns: list, output_dir: str | Path) -> Path:
     """지정 컬럼들의 분포를 박스플롯으로 저장한다 (이상치 확인용)."""
