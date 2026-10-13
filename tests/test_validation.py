@@ -5,7 +5,7 @@ import pandas as pd
 
 from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS
 from src.validation import check_ranges, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
-from src.validation import run_ablation_test, _fold_safe_prepare
+from src.validation import run_ablation_test, _fold_safe_prepare, _temporal_split
 from src.validation import plot_ablation_results, plot_grade_distribution
 
 
@@ -13,6 +13,7 @@ def _make_ablation_fixture(n=40, seed=42):
     """engineer_features가 요구하는 전체 컬럼을 갖춘, 결측치가 섞인 실스키마 fixture."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame({
+        "배치ID": [f"BP-2025-{i:04d}" for i in range(n)],
         "원료등급": rng.choice(["A", "B", "C"], n),
         "Ni_함량_pct": rng.normal(20, 3, n),
         "Co_함량_pct": rng.normal(8, 2, n),
@@ -100,20 +101,16 @@ def test_run_ablation_test_returns_r2_and_rmse_per_case_and_target():
         "base_plus_process": COMPOSITION_COLUMNS + PROCESS_COLUMNS,
     }
 
-    results = run_ablation_test(df, feature_sets, ["Ni_회수율_pct"], n_splits=3, random_state=0)
+    results = run_ablation_test(df, feature_sets, ["Ni_회수율_pct"])
 
     assert set(results.keys()) == {
         ("base", "Ni_회수율_pct"),
         ("base_plus_process", "Ni_회수율_pct"),
     }
     for metrics in results.values():
-        assert "r2_mean" in metrics
-        assert "r2_std" in metrics
-        assert "rmse_mean" in metrics
-        assert isinstance(metrics["r2_mean"], float)
-        assert isinstance(metrics["r2_std"], float)
-        assert isinstance(metrics["rmse_mean"], float)
-        assert metrics["r2_std"] >= 0.0
+        for key in ["val_r2", "val_rmse", "test_r2", "test_rmse"]:
+            assert key in metrics
+            assert isinstance(metrics[key], float)
 
 
 def test_run_ablation_test_encodes_categorical_features():
@@ -121,9 +118,30 @@ def test_run_ablation_test_encodes_categorical_features():
 
     feature_sets = {"with_grade": COMPOSITION_COLUMNS + ["원료등급"]}
 
-    results = run_ablation_test(df, feature_sets, ["Ni_회수율_pct"], n_splits=3, random_state=0)
+    results = run_ablation_test(df, feature_sets, ["Ni_회수율_pct"])
 
     assert ("with_grade", "Ni_회수율_pct") in results
+
+
+def test_temporal_split_respects_batch_order_without_shuffling():
+    df = _make_ablation_fixture(n=40)
+
+    train_i, val_i, test_i = _temporal_split(df, train_frac=0.7, val_frac=0.15)
+
+    batch_seq = df["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
+    assert batch_seq.loc[train_i].max() < batch_seq.loc[val_i].min()
+    assert batch_seq.loc[val_i].max() < batch_seq.loc[test_i].min()
+    assert len(train_i) + len(val_i) + len(test_i) == len(df)
+
+
+def test_temporal_split_sizes_match_requested_fractions():
+    df = _make_ablation_fixture(n=40)
+
+    train_i, val_i, test_i = _temporal_split(df, train_frac=0.7, val_frac=0.15)
+
+    assert len(train_i) == 28
+    assert len(val_i) == 6
+    assert len(test_i) == 6
 
 
 def test_fold_safe_prepare_imputes_missing_value_from_train_group_median_only():
@@ -174,10 +192,10 @@ def test_fold_safe_prepare_returns_engineered_columns():
 
 def test_plot_ablation_results_creates_png(tmp_path):
     results = {
-        ("base_only", "Ni_회수율_pct"): {"r2_mean": 0.58, "r2_std": 0.04, "rmse_mean": 3.8},
-        ("base_only", "Co_회수율_pct"): {"r2_mean": 0.60, "r2_std": 0.04, "rmse_mean": 4.3},
-        ("base_plus_derived", "Ni_회수율_pct"): {"r2_mean": 0.81, "r2_std": 0.03, "rmse_mean": 2.6},
-        ("base_plus_derived", "Co_회수율_pct"): {"r2_mean": 0.79, "r2_std": 0.02, "rmse_mean": 3.1},
+        ("base_only", "Ni_회수율_pct"): {"val_r2": 0.58, "val_rmse": 3.8, "test_r2": 0.55, "test_rmse": 4.0},
+        ("base_only", "Co_회수율_pct"): {"val_r2": 0.60, "val_rmse": 4.3, "test_r2": 0.57, "test_rmse": 4.5},
+        ("base_plus_derived", "Ni_회수율_pct"): {"val_r2": 0.81, "val_rmse": 2.6, "test_r2": 0.80, "test_rmse": 2.7},
+        ("base_plus_derived", "Co_회수율_pct"): {"val_r2": 0.79, "val_rmse": 3.1, "test_r2": 0.78, "test_rmse": 3.2},
     }
 
     output_path = plot_ablation_results(results, tmp_path)
