@@ -16,11 +16,11 @@ cells.append(nbf.v4.new_code_cell(
     "sys.path.append('..')\n\n"
     "import pandas as pd\n"
     "from pathlib import Path\n\n"
-    "from src.preprocessing import load_raw, clean_schema, resolve_duplicate_batches\n"
-    "from src.imputation import replace_outliers_with_nan, impute_missing_from_reference, interpolate_analysis_date\n"
-    "from src.features import engineer_features\n"
-    "from src.splitting import temporal_train_val_test_split\n"
-    "from src.validation import (\n"
+    "from module1_preprocessing.preprocessing import load_raw, clean_schema, resolve_duplicate_batches\n"
+    "from module1_preprocessing.imputation import replace_outliers_with_nan, impute_missing_from_reference, interpolate_analysis_date\n"
+    "from module1_preprocessing.features import engineer_features\n"
+    "from module1_preprocessing.splitting import temporal_train_val_test_split\n"
+    "from module1_preprocessing.validation import (\n"
     "    check_ranges,\n"
     "    check_missing,\n"
     "    plot_missing_before_after,\n"
@@ -31,9 +31,9 @@ cells.append(nbf.v4.new_code_cell(
     "    plot_grade_distribution,\n"
     "    evaluate_final_model,\n"
     ")\n"
-    "from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS, TARGET_COLUMNS\n\n"
+    "from module1_preprocessing.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS, TARGET_COLUMNS\n\n"
     "RAW_PATH = Path('../data/raw/영풍그룹_금속회수율최적화_RawMaterialData_학생배포용.xlsx')\n"
-    "FIGURES_DIR = Path('../reports/figures')"
+    "FIGURES_DIR = Path('../module1_preprocessing/reports/figures')"
 ))
 
 cells.append(nbf.v4.new_markdown_cell("## 1. 원본 로드 및 정제"))
@@ -324,6 +324,57 @@ cells.append(nbf.v4.new_code_cell(
     "    final_feature_set, TARGET_COLUMNS\n"
     ")\n"
     "pd.DataFrame(final_test_results).T"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### 6.4 모델 비교 (RandomForest vs XGBoost vs LightGBM)\n\n"
+    "지금까지는 RandomForest로만 ablation test를 했다. 같은 feature set"
+    "(`base_plus_derived`)으로 XGBoost·LightGBM도 **Validation 기준**으로 "
+    "비교해본다 — feature 선택과 동일한 원칙으로, 여기서도 Test는 보지 않는다 "
+    "(§6.3의 최종 Test 평가는 이 비교와 무관하게 이미 끝난 결과이며 바뀌지 않는다)."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "from sklearn.ensemble import RandomForestRegressor\n"
+    "from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score\n"
+    "from xgboost import XGBRegressor\n"
+    "from lightgbm import LGBMRegressor\n"
+    "import numpy as np\n\n"
+    "model_candidates = {\n"
+    "    'RandomForest': lambda: RandomForestRegressor(random_state=42),\n"
+    "    'XGBoost': lambda: XGBRegressor(random_state=42, verbosity=0),\n"
+    "    'LightGBM': lambda: LGBMRegressor(random_state=42, verbose=-1),\n"
+    "}"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "cmp_train_prepared = engineer_features(\n"
+    "    impute_missing_from_reference(pre_impute_df.loc[train_i], pre_impute_df.loc[train_i])\n"
+    ")\n"
+    "cmp_val_prepared = engineer_features(\n"
+    "    impute_missing_from_reference(pre_impute_df.loc[train_i], pre_impute_df.loc[val_i])\n"
+    ")\n\n"
+    "X_train_cmp = pd.get_dummies(cmp_train_prepared[final_feature_set])\n"
+    "X_val_cmp = pd.get_dummies(cmp_val_prepared[final_feature_set]).reindex(\n"
+    "    columns=X_train_cmp.columns, fill_value=0\n"
+    ")\n\n"
+    "model_comparison_results = {}\n"
+    "for model_name, make_model in model_candidates.items():\n"
+    "    for target in TARGET_COLUMNS:\n"
+    "        model = make_model()\n"
+    "        model.fit(X_train_cmp, pre_impute_df.loc[train_i, target])\n"
+    "        preds = model.predict(X_val_cmp)\n"
+    "        y_val_cmp = pre_impute_df.loc[val_i, target]\n\n"
+    "        model_comparison_results[(model_name, target)] = {\n"
+    "            'val_r2': float(r2_score(y_val_cmp, preds)),\n"
+    "            'val_rmse': float(np.sqrt(mean_squared_error(y_val_cmp, preds))),\n"
+    "            'val_mae': float(mean_absolute_error(y_val_cmp, preds)),\n"
+    "        }\n\n"
+    "pd.DataFrame(model_comparison_results).T"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "plot_ablation_results(model_comparison_results, FIGURES_DIR / 'model_comparison')"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(

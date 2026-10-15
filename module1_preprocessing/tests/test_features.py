@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.features import engineer_features
+from module1_preprocessing.features import engineer_features
 
 
 def test_engineer_features_computes_all_derived_columns():

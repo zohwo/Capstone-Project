@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import NORMAL_RANGES
-from src.pipeline import run
+from module1_preprocessing.config import NORMAL_RANGES
+from module1_preprocessing.pipeline import run
 
 RAW_PATH = Path("data/raw/영풍그룹_금속회수율최적화_RawMaterialData_학생배포용.xlsx")
 

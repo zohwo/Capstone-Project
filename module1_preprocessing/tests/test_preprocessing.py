@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.preprocessing import load_raw, clean_schema, resolve_duplicate_batches
+from module1_preprocessing.preprocessing import load_raw, clean_schema, resolve_duplicate_batches
 
 
 def test_load_raw_csv(tmp_path):
