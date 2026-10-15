@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 
-from src.config import NORMAL_RANGES, COMPOSITION_COLUMNS, PROCESS_COLUMNS
+from module1_preprocessing.config import NORMAL_RANGES, COMPOSITION_COLUMNS, PROCESS_COLUMNS
 
 
 def replace_outliers_with_nan(df: pd.DataFrame, ranges: dict = NORMAL_RANGES) -> pd.DataFrame:

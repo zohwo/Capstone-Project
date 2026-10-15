@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import RAW_SHEET_NAME
+from module1_preprocessing.config import RAW_SHEET_NAME
 
 
 def load_raw(path: str | Path, sheet_name: str = RAW_SHEET_NAME) -> pd.DataFrame:
