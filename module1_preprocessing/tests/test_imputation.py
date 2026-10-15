@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.imputation import replace_outliers_with_nan
+from module1_preprocessing.imputation import replace_outliers_with_nan
 
 
 def test_replace_outliers_with_nan_converts_out_of_range_values_to_nan():
@@ -82,7 +82,7 @@ def test_impute_missing_fills_process_columns_with_overall_median():
     assert result["침출시간_hr"].tolist() == [3.0, 4.0, 3.5]
 
 
-from src.imputation import impute_missing_from_reference
+from module1_preprocessing.imputation import impute_missing_from_reference
 
 
 def _full_row(ni, ore_kg, acid_l, grade="A"):
@@ -141,7 +141,7 @@ def test_impute_missing_from_reference_uses_reference_stats_not_target_values():
     assert result["Ni_함량_pct"].iloc[0] == pytest.approx(22.0)
 
 
-from src.imputation import interpolate_analysis_date
+from module1_preprocessing.imputation import interpolate_analysis_date
 
 
 def test_interpolate_analysis_date_fills_gap_using_batch_order():

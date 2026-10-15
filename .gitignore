@@ -14,7 +14,7 @@ notebooks/executed_check.ipynb
 
 # 원본 데이터(회사 제공, 비공개) 및 파이프라인 생성물 
 data/
-reports/figures/
+module1_preprocessing/reports/figures/
 
 # 작업용 스크래치 
 .superpowers/

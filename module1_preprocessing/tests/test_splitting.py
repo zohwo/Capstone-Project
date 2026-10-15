@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.splitting import temporal_train_val_test_split
+from module1_preprocessing.splitting import temporal_train_val_test_split
 
 
 def _make_batch_df(n=40):

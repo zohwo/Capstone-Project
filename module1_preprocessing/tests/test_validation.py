@@ -2,13 +2,13 @@ import numpy as np
 
 import pandas as pd
 
-from src.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS
-from src.splitting import temporal_train_val_test_split
+from module1_preprocessing.config import COMPOSITION_COLUMNS, PROCESS_COLUMNS
+from module1_preprocessing.splitting import temporal_train_val_test_split
 import pytest
 
-from src.validation import check_ranges, check_missing, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
-from src.validation import run_ablation_test, evaluate_final_model
-from src.validation import plot_ablation_results, plot_grade_distribution
+from module1_preprocessing.validation import check_ranges, check_missing, plot_missing_before_after, plot_distributions, plot_correlation_heatmap
+from module1_preprocessing.validation import run_ablation_test, evaluate_final_model
+from module1_preprocessing.validation import plot_ablation_results, plot_grade_distribution
 
 
 def _make_ablation_fixture(n=40, seed=42):
