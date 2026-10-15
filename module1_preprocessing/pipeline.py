@@ -2,12 +2,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import COMPOSITION_COLUMNS, DERIVED_FEATURES, PROCESS_COLUMNS, TARGET_COLUMNS
-from src.features import engineer_features
-from src.imputation import replace_outliers_with_nan, impute_missing_from_reference, interpolate_analysis_date
-from src.preprocessing import clean_schema, load_raw, resolve_duplicate_batches
-from src.splitting import temporal_train_val_test_split
-from src.validation import check_ranges, check_missing, evaluate_final_model, run_ablation_test
+from module1_preprocessing.config import COMPOSITION_COLUMNS, DERIVED_FEATURES, PROCESS_COLUMNS, TARGET_COLUMNS
+from module1_preprocessing.features import engineer_features
+from module1_preprocessing.imputation import replace_outliers_with_nan, impute_missing_from_reference, interpolate_analysis_date
+from module1_preprocessing.preprocessing import clean_schema, load_raw, resolve_duplicate_batches
+from module1_preprocessing.splitting import temporal_train_val_test_split
+from module1_preprocessing.validation import check_ranges, check_missing, evaluate_final_model, run_ablation_test
 
 
 def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:

@@ -12,9 +12,9 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import NORMAL_RANGES
-from src.features import engineer_features
-from src.imputation import impute_missing_from_reference
+from module1_preprocessing.config import NORMAL_RANGES
+from module1_preprocessing.features import engineer_features
+from module1_preprocessing.imputation import impute_missing_from_reference
 
 
 def check_ranges(df: pd.DataFrame, ranges: dict = NORMAL_RANGES) -> dict:
