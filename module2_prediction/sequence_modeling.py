@@ -1,5 +1,9 @@
+import random
+
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn as nn
 from sklearn.preprocessing import StandardScaler
 
 
@@ -87,3 +91,36 @@ def transform_sequence_inputs(
         result[f"{target_column}_history"] = history_target_scaler.transform(df[[target_column]])
 
     return result
+
+
+def set_seed(seed: int = 42) -> None:
+    """random/numpy/torch/cuda 시드를 고정하고 cuDNN을 deterministic 모드로 설정한다.
+
+    cuDNN 커널 특성상 플랫폼/라이브러리 버전까지 다른 환경에서 bit-level 완전 동일성을
+    항상 보장하지는 않는다.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+class LSTMRegressor(nn.Module):
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int = 1, dropout: float = 0.0):
+        super().__init__()
+        dropout = dropout if num_layers > 1 else 0.0
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.head = nn.Linear(hidden_size, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, (hidden, _) = self.lstm(x)
+        last_hidden = hidden[-1]
+        return self.head(last_hidden).squeeze(-1)
