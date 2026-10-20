@@ -2,7 +2,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from module2_prediction.sequence_modeling import build_sequences
+from module2_prediction.sequence_modeling import (
+    build_sequences,
+    fit_feature_scaler,
+    fit_history_target_scaler,
+    transform_sequence_inputs,
+)
 
 
 def _make_fixture(n_train=12, n_val=6, n_test=6, seed=0):
@@ -123,3 +128,56 @@ def test_build_sequences_output_shape_for_x_and_xy_variants():
     assert X_only.shape[1:] == (window_size, 2)
     assert X_xy.shape[1:] == (window_size, 3)
     assert X_only.shape[0] == X_xy.shape[0] == len(y_only) == len(y_xy)
+
+
+def test_fit_feature_scaler_matches_given_rows_statistics():
+    df = _make_fixture()
+    train_df = df[df["split"] == "train"]
+
+    scaler = fit_feature_scaler(train_df, ["f1", "f2"])
+
+    expected_mean = train_df[["f1", "f2"]].mean().to_numpy()
+    np.testing.assert_allclose(scaler.mean_, expected_mean)
+
+
+def test_fit_feature_scaler_unaffected_by_rows_not_passed_in():
+    df = _make_fixture()
+    train_df = df[df["split"] == "train"].copy()
+    scaler_before = fit_feature_scaler(train_df, ["f1", "f2"])
+
+    df.loc[df["split"] != "train", ["f1", "f2"]] = 1e6
+    scaler_after = fit_feature_scaler(train_df, ["f1", "f2"])
+
+    np.testing.assert_allclose(scaler_before.mean_, scaler_after.mean_)
+
+
+def test_fit_history_target_scaler_matches_given_rows_statistics():
+    df = _make_fixture()
+    train_df = df[df["split"] == "train"]
+
+    scaler = fit_history_target_scaler(train_df, "y")
+
+    assert scaler.mean_[0] == pytest.approx(train_df["y"].mean())
+
+
+def test_transform_sequence_inputs_scales_features_and_adds_history_column():
+    df = _make_fixture()
+    train_df = df[df["split"] == "train"]
+    feature_scaler = fit_feature_scaler(train_df, ["f1", "f2"])
+    history_scaler = fit_history_target_scaler(train_df, "y")
+
+    transformed = transform_sequence_inputs(df, ["f1", "f2"], "y", feature_scaler, history_scaler)
+
+    assert "y_history" in transformed.columns
+    pd.testing.assert_series_equal(transformed["y"], df["y"])
+    assert not transformed["f1"].equals(df["f1"])
+
+
+def test_transform_sequence_inputs_without_history_scaler_omits_history_column():
+    df = _make_fixture()
+    train_df = df[df["split"] == "train"]
+    feature_scaler = fit_feature_scaler(train_df, ["f1", "f2"])
+
+    transformed = transform_sequence_inputs(df, ["f1", "f2"], "y", feature_scaler, history_target_scaler=None)
+
+    assert "y_history" not in transformed.columns

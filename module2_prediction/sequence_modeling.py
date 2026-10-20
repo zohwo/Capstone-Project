@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 
 def build_sequences(
@@ -49,3 +50,40 @@ def build_sequences(
     y = np.array(y_list, dtype=float)
 
     return X, y, split_labels, target_indices
+
+
+def fit_feature_scaler(df: pd.DataFrame, feature_columns: list[str]) -> StandardScaler:
+    """feature_columns에 대해서만 StandardScaler를 fit한다. 호출자가 넘긴 행만 사용한다
+    (tuning 단계에서는 Train만, final 단계에서는 Train+Validation을 넘겨야 한다)."""
+    scaler = StandardScaler()
+    scaler.fit(df[feature_columns])
+    return scaler
+
+
+def fit_history_target_scaler(df: pd.DataFrame, target_column: str) -> StandardScaler:
+    """LSTM-X+y에서 과거 입력으로 쓰는 target 값 전용 scaler. 현재 예측 대상 y는
+    별도로 스케일링하지 않으므로 이 scaler는 history input에만 쓴다."""
+    scaler = StandardScaler()
+    scaler.fit(df[[target_column]])
+    return scaler
+
+
+def transform_sequence_inputs(
+    df: pd.DataFrame,
+    feature_columns: list[str],
+    target_column: str,
+    feature_scaler: StandardScaler,
+    history_target_scaler: StandardScaler | None = None,
+) -> pd.DataFrame:
+    """feature_columns는 feature_scaler로 transform하고, history_target_scaler가 있으면
+    f"{target_column}_history" 컬럼(과거 입력용 scaled target)을 추가한다.
+
+    target_column 자체(현재 예측 대상)는 원 단위(raw)로 그대로 둔다.
+    """
+    result = df.copy()
+    result[feature_columns] = feature_scaler.transform(df[feature_columns])
+
+    if history_target_scaler is not None:
+        result[f"{target_column}_history"] = history_target_scaler.transform(df[[target_column]])
+
+    return result
