@@ -470,3 +470,47 @@ def test_tune_sequence_models_metrics_in_original_target_scale():
     # 극단적으로 음수가 된다 — 지금 우리가 실제 데이터에서 본 val_r2=-177 같은 증상.
     assert entry["val_rmse"] < 20.0
     assert entry["val_r2"] > -5.0
+
+
+def test_evaluate_final_sequence_model_uses_mini_batches():
+    df = _make_tuning_fixture(n_train=20, n_val=8, n_test=8)
+    config = {"window_size": 3, "hidden_size": 4, "num_layers": 1, "include_past_target": False}
+
+    step_calls = []
+    original_step = torch.optim.Adam.step
+
+    def counting_step(self, *args, **kwargs):
+        step_calls.append(1)
+        return original_step(self, *args, **kwargs)
+
+    torch.optim.Adam.step = counting_step
+    try:
+        evaluate_final_sequence_model(
+            df, "y", config, best_epoch=1, feature_columns=["f1", "f2"], batch_size=8
+        )
+    finally:
+        torch.optim.Adam.step = original_step
+
+    # train_val 샘플 수 = (20+8) - window_size(3) = 25. batch_size=8 → ceil(25/8)=4
+    # step이 best_epoch=1 안에서 발생해야 한다.
+    assert len(step_calls) == 4
+
+
+def test_evaluate_final_sequence_model_metrics_in_original_target_scale():
+    rng = np.random.default_rng(8)
+    n = 80
+    df = pd.DataFrame({
+        "f1": rng.normal(0, 1, n),
+        "f2": rng.normal(0, 1, n),
+        "split": ["train"] * 50 + ["validation"] * 15 + ["test"] * 15,
+    })
+    df["y"] = 85.0 + df["f1"] * 3.0 + rng.normal(0, 0.5, n)
+
+    config = {"window_size": 3, "hidden_size": 8, "num_layers": 1, "include_past_target": False}
+
+    metrics = evaluate_final_sequence_model(
+        df, "y", config, best_epoch=50, feature_columns=["f1", "f2"], batch_size=8
+    )
+
+    assert metrics["test_rmse"] < 20.0
+    assert metrics["test_r2"] > -5.0
