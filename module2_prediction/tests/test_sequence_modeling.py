@@ -421,6 +421,29 @@ def test_build_final_sequences_first_test_window_spans_train_val_boundary():
     # split을 먼저 자르지 않고 전체 df로 시퀀스를 재생성했다는 증거다
     assert first_test_target_index - config["window_size"] < n_train_val
 
+    # final integration: Test 첫 target의 current feature가 실제로 그 row의
+    # feature_columns와 일치하는지 (scaler가 Train+Val 기준으로 transform된 값과
+    # 같아야 하므로, 직접 비교 대신 shape/위치만 확인 — 값 비교는 아래 round-trip으로)
+    assert sequences["X_current_test"].shape[0] == len(sequences["test_target_indices"])
+    assert sequences["X_current_test"].shape[1] == 2
+
+
+def test_build_final_sequences_current_features_match_test_row():
+    df = _make_tuning_fixture(n_train=20, n_val=8, n_test=8)
+    config = {"window_size": 3, "hidden_size": 4, "num_layers": 1, "include_past_target": False}
+
+    sequences = _build_final_sequences(df, "y", config, feature_columns=["f1", "f2"])
+
+    train_val_df = df[df["split"].isin(["train", "validation"])].reset_index(drop=True)
+    feature_scaler = fit_feature_scaler(train_val_df, ["f1", "f2"])
+    expected_scaled_df = df.copy()
+    expected_scaled_df[["f1", "f2"]] = feature_scaler.transform(df[["f1", "f2"]])
+
+    first_test_target_index = int(sequences["test_target_indices"][0])
+    expected_current = expected_scaled_df.loc[first_test_target_index, ["f1", "f2"]].to_numpy(dtype=float)
+
+    np.testing.assert_allclose(sequences["X_current_test"][0], expected_current)
+
 
 def test_evaluate_final_sequence_model_returns_test_metrics():
     df = _make_tuning_fixture(n_train=20, n_val=8, n_test=8)

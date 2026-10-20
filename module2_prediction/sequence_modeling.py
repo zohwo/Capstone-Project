@@ -400,20 +400,22 @@ def _build_final_sequences(
         df, feature_columns, target, feature_scaler, history_target_scaler
     )
 
-    X, y, split_labels, target_indices = build_sequences(
+    sequences = build_sequences(
         transformed, feature_columns, target, window_size, include_past_target
     )
-    split_labels_arr = np.array(split_labels)
-    target_indices_arr = np.array(target_indices)
+    split_labels_arr = np.array(sequences["split_labels"])
+    target_indices_arr = np.array(sequences["target_indices"])
 
     train_val_mask = np.isin(split_labels_arr, ["train", "validation"])
     test_mask = split_labels_arr == "test"
 
     return {
-        "X_train_val": X[train_val_mask],
-        "y_train_val": y[train_val_mask],
-        "X_test": X[test_mask],
-        "y_test": y[test_mask],
+        "X_seq_train_val": sequences["X_seq"][train_val_mask],
+        "X_current_train_val": sequences["X_current"][train_val_mask],
+        "y_train_val": sequences["y"][train_val_mask],
+        "X_seq_test": sequences["X_seq"][test_mask],
+        "X_current_test": sequences["X_current"][test_mask],
+        "y_test": sequences["y"][test_mask],
         "test_target_indices": target_indices_arr[test_mask],
     }
 
@@ -430,11 +432,13 @@ def evaluate_final_sequence_model(
     """Train+Validation으로 scaler를 재fit하고, 선택된 config로 best_epoch만큼 고정
     학습한 뒤(early stopping 없음) Test를 1회 평가한다.
 
+    각 샘플의 입력은 과거 window(X_seq) + 현재 배치 feature(X_current) 쌍이다 —
+    tuning 단계(tune_sequence_models)와 동일한 구조/mini-batch 방식(batch_size, lr)으로
+    학습해야 best_epoch의 의미가 두 단계에서 일관된다.
+
     현재 target(y)도 Train+Validation으로 fit한 StandardScaler로 스케일링해서 학습하고,
     Test 예측값만 inverse_transform해서 원 단위로 되돌린 뒤 metric을 계산한다 — true y는
-    항상 _build_final_sequences()가 준 원본(스케일 안 한) 값을 그대로 쓴다. tuning
-    단계(tune_sequence_models)와 동일한 mini-batch 방식(batch_size, lr)으로 학습해야
-    best_epoch의 의미가 두 단계에서 일관된다.
+    항상 _build_final_sequences()가 준 원본(스케일 안 한) 값을 그대로 쓴다.
     """
     sequences = _build_final_sequences(df, target, config, feature_columns)
 
@@ -444,6 +448,7 @@ def evaluate_final_sequence_model(
     model = LSTMRegressor(
         input_size=input_size,
         hidden_size=config["hidden_size"],
+        current_feature_size=len(feature_columns),
         num_layers=config["num_layers"],
     )
 
@@ -451,9 +456,10 @@ def evaluate_final_sequence_model(
     target_scaler.fit(sequences["y_train_val"].reshape(-1, 1))
     y_train_val_scaled = target_scaler.transform(sequences["y_train_val"].reshape(-1, 1)).ravel()
 
-    X_train_val_t = torch.tensor(sequences["X_train_val"], dtype=torch.float32)
+    X_seq_train_val_t = torch.tensor(sequences["X_seq_train_val"], dtype=torch.float32)
+    X_current_train_val_t = torch.tensor(sequences["X_current_train_val"], dtype=torch.float32)
     y_train_val_t = torch.tensor(y_train_val_scaled, dtype=torch.float32)
-    train_dataset = TensorDataset(X_train_val_t, y_train_val_t)
+    train_dataset = TensorDataset(X_seq_train_val_t, X_current_train_val_t, y_train_val_t)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -461,16 +467,19 @@ def evaluate_final_sequence_model(
 
     model.train()
     for _ in range(best_epoch):
-        for X_batch, y_batch in train_loader:
+        for X_seq_batch, X_current_batch, y_batch in train_loader:
             optimizer.zero_grad()
-            preds = model(X_batch)
+            preds = model(X_seq_batch, X_current_batch)
             loss = loss_fn(preds, y_batch)
             loss.backward()
             optimizer.step()
 
     model.eval()
     with torch.no_grad():
-        test_preds_scaled = model(torch.tensor(sequences["X_test"], dtype=torch.float32)).numpy()
+        test_preds_scaled = model(
+            torch.tensor(sequences["X_seq_test"], dtype=torch.float32),
+            torch.tensor(sequences["X_current_test"], dtype=torch.float32),
+        ).numpy()
     test_preds = target_scaler.inverse_transform(test_preds_scaled.reshape(-1, 1)).ravel()
 
     y_test = sequences["y_test"]
