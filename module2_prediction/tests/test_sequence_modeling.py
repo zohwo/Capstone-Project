@@ -438,3 +438,35 @@ def test_train_lstm_learns_input_dependent_variation_not_constant_output():
     # 달라지는 예측을 내야 한다. target이 0 근처라 bias 쪽에 큰 gradient가 쏠리지
     # 않으므로, 이 변동성은 mini-batch 자체의 효과로 귀속할 수 있다.
     assert np.std(val_preds) > 0.5
+
+
+def test_tune_sequence_models_metrics_in_original_target_scale():
+    rng = np.random.default_rng(7)
+    n = 80
+    df = pd.DataFrame({
+        "f1": rng.normal(0, 1, n),
+        "f2": rng.normal(0, 1, n),
+        "split": ["train"] * 50 + ["validation"] * 15 + ["test"] * 15,
+    })
+    # 실제 회수율(~85%) 스케일을 흉내낸, 0에서 멀리 떨어진 target
+    df["y"] = 85.0 + df["f1"] * 3.0 + rng.normal(0, 0.5, n)
+
+    tiny_grid = {
+        "window_size": [3],
+        "hidden_size": [8],
+        "num_layers": [1],
+        "include_past_target": [False],
+    }
+
+    best = tune_sequence_models(
+        df, feature_columns=["f1", "f2"], target_columns=["y"],
+        grid=tiny_grid, max_epochs=100, patience=20, batch_size=8,
+    )
+
+    entry = best["y"]
+    # target scaling + mini-batch가 제대로 적용됐다면 val_rmse가 target 변동폭(표준편차
+    # 몇 단위) 근처여야 한다. inverse_transform을 빼먹었거나 scaled 공간에서 true y와
+    # 비교하면(=이번에 고치는 버그 그 자체) val_rmse가 ~85 가까운 값이 되고 val_r2가
+    # 극단적으로 음수가 된다 — 지금 우리가 실제 데이터에서 본 val_r2=-177 같은 증상.
+    assert entry["val_rmse"] < 20.0
+    assert entry["val_r2"] > -5.0
