@@ -379,3 +379,62 @@ def test_evaluate_final_sequence_model_predictions_have_no_nan_or_inf():
 
     for value in metrics.values():
         assert np.isfinite(value)
+
+
+def test_train_lstm_batch_size_controls_steps_per_epoch():
+    rng = np.random.default_rng(6)
+    X_train = rng.normal(0, 1, (10, 3, 2)).astype(np.float32)
+    y_train = rng.normal(0, 1, 10).astype(np.float32)
+    X_val = rng.normal(0, 1, (4, 3, 2)).astype(np.float32)
+    y_val = rng.normal(0, 1, 4).astype(np.float32)
+
+    model = LSTMRegressor(input_size=2, hidden_size=4, num_layers=1)
+
+    step_calls = []
+    original_step = torch.optim.Adam.step
+
+    def counting_step(self, *args, **kwargs):
+        step_calls.append(1)
+        return original_step(self, *args, **kwargs)
+
+    torch.optim.Adam.step = counting_step
+    try:
+        train_lstm(model, X_train, y_train, X_val, y_val, max_epochs=1, patience=1, batch_size=4)
+    finally:
+        torch.optim.Adam.step = original_step
+
+    # 10개 샘플, batch_size=4 → ceil(10/4)=3 step이 1 epoch 안에서 발생해야 한다
+    assert len(step_calls) == 3
+
+
+def test_train_lstm_learns_input_dependent_variation_not_constant_output():
+    rng = np.random.default_rng(5)
+    n = 64
+    X = rng.normal(0, 1, (n, 4, 2)).astype(np.float32)
+    # 주의: target을 0 근처로 유지한다(오프셋을 더하지 않음). 이 테스트는 mini-batch
+    # 하나만의 효과를 분리해서 보려는 것이고, target이 0에서 멀리 떨어져 있으면(예:
+    # +50) Adam이 input-dependent weight보다 bias(평균 맞추기)부터 흡수해버려서
+    # mini-batch를 추가해도 입력 의존적 분산이 쉽게 안 생긴다 — 그건 Task 2/3의
+    # target scaling이 해결할 별개의 원인이라 여기서 같이 테스트하면 안 된다.
+    y = (X[:, -1, 0] * 3.0).astype(np.float32)
+
+    X_train, y_train = X[:48], y[:48]
+    X_val, y_val = X[48:], y[48:]
+
+    model = LSTMRegressor(input_size=2, hidden_size=8, num_layers=1)
+    best_state_dict, best_epoch = train_lstm(
+        model, X_train, y_train, X_val, y_val,
+        max_epochs=100, patience=100, batch_size=8,
+    )
+
+    restored = LSTMRegressor(input_size=2, hidden_size=8, num_layers=1)
+    restored.load_state_dict(best_state_dict)
+    restored.eval()
+    with torch.no_grad():
+        val_preds = restored(torch.tensor(X_val, dtype=torch.float32)).numpy()
+
+    # 예전 full-batch(epoch당 1 step)였다면 이 정도 epoch 수로는 거의 상수(std≈0)에
+    # 머물렀다 — mini-batch(batch_size=8, 6 step/epoch)라면 input에 따라 실제로
+    # 달라지는 예측을 내야 한다. target이 0 근처라 bias 쪽에 큰 gradient가 쏠리지
+    # 않으므로, 이 변동성은 mini-batch 자체의 효과로 귀속할 수 있다.
+    assert np.std(val_preds) > 0.5

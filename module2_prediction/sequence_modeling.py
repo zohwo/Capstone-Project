@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader, TensorDataset
 
 from module2_prediction.config import FEATURE_COLUMNS, TARGET_COLUMNS
 
@@ -136,12 +137,16 @@ def train_lstm(
     y_train: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    max_epochs: int = 200,
-    patience: int = 20,
+    max_epochs: int = 500,
+    patience: int = 30,
     lr: float = 1e-3,
+    batch_size: int = 32,
     seed: int = 42,
 ) -> tuple[dict, int]:
-    """Validation loss 기준 early stopping으로 학습한다.
+    """Validation loss 기준 early stopping으로 학습한다 (mini-batch).
+
+    y_train/y_val은 호출자가 이미 스케일링해서 넘긴다고 가정한다 — 이 함수는 scaler를
+    전혀 모른다 (X와 동일한 원칙). Validation은 배치로 나누지 않고 한 번에 forward한다.
 
     반환값: (best_state_dict, best_epoch).
     best_state_dict는 validation loss가 가장 낮았던 시점의 가중치다 (patience가 끝난
@@ -155,6 +160,9 @@ def train_lstm(
     X_val_t = torch.tensor(X_val, dtype=torch.float32)
     y_val_t = torch.tensor(y_val, dtype=torch.float32)
 
+    train_dataset = TensorDataset(X_train_t, y_train_t)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss()
 
@@ -165,11 +173,12 @@ def train_lstm(
 
     for epoch_index in range(max_epochs):
         model.train()
-        optimizer.zero_grad()
-        preds = model(X_train_t)
-        loss = loss_fn(preds, y_train_t)
-        loss.backward()
-        optimizer.step()
+        for X_batch, y_batch in train_loader:
+            optimizer.zero_grad()
+            preds = model(X_batch)
+            loss = loss_fn(preds, y_batch)
+            loss.backward()
+            optimizer.step()
 
         model.eval()
         with torch.no_grad():
