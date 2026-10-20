@@ -11,6 +11,7 @@ from module2_prediction.sequence_modeling import (
     set_seed,
     train_lstm,
     transform_sequence_inputs,
+    tune_sequence_models,
 )
 
 
@@ -266,3 +267,54 @@ def test_train_lstm_restores_best_validation_weights_not_final_epoch_weights():
     restored_val_loss = _val_loss(restored_model, X_val, y_val)
 
     assert restored_val_loss <= final_val_loss + 1e-6
+
+
+def _make_tuning_fixture(n_train=20, n_val=8, n_test=8, seed=3):
+    rng = np.random.default_rng(seed)
+    n = n_train + n_val + n_test
+    df = pd.DataFrame({
+        "f1": rng.normal(0, 1, n),
+        "f2": rng.normal(0, 1, n),
+        "split": ["train"] * n_train + ["validation"] * n_val + ["test"] * n_test,
+    })
+    df["y"] = df["f1"] * 3 + rng.normal(0, 0.5, n)
+    return df
+
+
+def test_tune_sequence_models_returns_config_per_target():
+    df = _make_tuning_fixture()
+    tiny_grid = {
+        "window_size": [3],
+        "hidden_size": [4],
+        "num_layers": [1],
+        "include_past_target": [False, True],
+    }
+
+    best = tune_sequence_models(
+        df, feature_columns=["f1", "f2"], target_columns=["y"],
+        grid=tiny_grid, max_epochs=3, patience=1,
+    )
+
+    assert set(best.keys()) == {"y"}
+    entry = best["y"]
+    for key in ["config", "best_epoch", "val_r2", "val_rmse", "val_mae"]:
+        assert key in entry
+
+
+def test_tune_sequence_models_never_uses_test_target():
+    df = _make_tuning_fixture()
+    df.loc[df["split"] == "test", "y"] = np.nan
+    tiny_grid = {
+        "window_size": [3],
+        "hidden_size": [4],
+        "num_layers": [1],
+        "include_past_target": [False],
+    }
+
+    best = tune_sequence_models(
+        df, feature_columns=["f1", "f2"], target_columns=["y"],
+        grid=tiny_grid, max_epochs=3, patience=1,
+    )
+
+    assert "y" in best
+    assert not np.isnan(best["y"]["val_r2"])
