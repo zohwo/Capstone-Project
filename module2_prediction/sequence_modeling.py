@@ -281,3 +281,92 @@ def tune_sequence_models(
                 best[target] = entry
 
     return best
+
+
+def _build_final_sequences(
+    df: pd.DataFrame,
+    target: str,
+    config: dict,
+    feature_columns: list[str] = FEATURE_COLUMNS,
+) -> dict:
+    """evaluate_final_sequence_model()이 쓰는 Step 1~4: Train+Validation으로 scaler를
+    재fit하고, 전체 df를 transform한 뒤 전체 시간축에서 시퀀스를 재생성한다.
+
+    Test 초반 target의 window가 Train+Validation 마지막 행들을 포함할 수 있도록
+    df를 split별로 먼저 자르지 않는다.
+    """
+    window_size = config["window_size"]
+    include_past_target = config["include_past_target"]
+
+    train_val_df = df[df["split"].isin(["train", "validation"])].reset_index(drop=True)
+
+    feature_scaler = fit_feature_scaler(train_val_df, feature_columns)
+    history_target_scaler = (
+        fit_history_target_scaler(train_val_df, target) if include_past_target else None
+    )
+
+    transformed = transform_sequence_inputs(
+        df, feature_columns, target, feature_scaler, history_target_scaler
+    )
+
+    X, y, split_labels, target_indices = build_sequences(
+        transformed, feature_columns, target, window_size, include_past_target
+    )
+    split_labels_arr = np.array(split_labels)
+    target_indices_arr = np.array(target_indices)
+
+    train_val_mask = split_labels_arr != "test"
+    test_mask = split_labels_arr == "test"
+
+    return {
+        "X_train_val": X[train_val_mask],
+        "y_train_val": y[train_val_mask],
+        "X_test": X[test_mask],
+        "y_test": y[test_mask],
+        "test_target_indices": target_indices_arr[test_mask],
+    }
+
+
+def evaluate_final_sequence_model(
+    df: pd.DataFrame,
+    target: str,
+    config: dict,
+    best_epoch: int,
+    feature_columns: list[str] = FEATURE_COLUMNS,
+) -> dict:
+    """Train+Validation으로 scaler를 재fit하고, 선택된 config로 best_epoch만큼 고정
+    학습한 뒤(early stopping 없음) Test를 1회 평가한다."""
+    sequences = _build_final_sequences(df, target, config, feature_columns)
+
+    include_past_target = config["include_past_target"]
+    input_size = len(feature_columns) + (1 if include_past_target else 0)
+    model = LSTMRegressor(
+        input_size=input_size,
+        hidden_size=config["hidden_size"],
+        num_layers=config["num_layers"],
+    )
+
+    set_seed()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    loss_fn = torch.nn.MSELoss()
+    X_train_val_t = torch.tensor(sequences["X_train_val"], dtype=torch.float32)
+    y_train_val_t = torch.tensor(sequences["y_train_val"], dtype=torch.float32)
+
+    model.train()
+    for _ in range(best_epoch):
+        optimizer.zero_grad()
+        preds = model(X_train_val_t)
+        loss = loss_fn(preds, y_train_val_t)
+        loss.backward()
+        optimizer.step()
+
+    model.eval()
+    with torch.no_grad():
+        test_preds = model(torch.tensor(sequences["X_test"], dtype=torch.float32)).numpy()
+
+    y_test = sequences["y_test"]
+    return {
+        "test_r2": float(r2_score(y_test, test_preds)),
+        "test_rmse": float(np.sqrt(mean_squared_error(y_test, test_preds))),
+        "test_mae": float(mean_absolute_error(y_test, test_preds)),
+    }
