@@ -1,11 +1,14 @@
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from module2_prediction.sequence_modeling import (
+    LSTMRegressor,
     build_sequences,
     fit_feature_scaler,
     fit_history_target_scaler,
+    set_seed,
     transform_sequence_inputs,
 )
 
@@ -181,3 +184,35 @@ def test_transform_sequence_inputs_without_history_scaler_omits_history_column()
     transformed = transform_sequence_inputs(df, ["f1", "f2"], "y", feature_scaler, history_target_scaler=None)
 
     assert "y_history" not in transformed.columns
+
+
+def test_lstm_regressor_forward_pass_shape():
+    model = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1)
+    x = torch.rand(4, 5, 3)
+
+    output = model(x)
+
+    assert output.shape == (4,)
+
+
+def test_lstm_regressor_forces_zero_dropout_when_single_layer():
+    model = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1, dropout=0.5)
+
+    assert model.lstm.dropout == 0.0
+
+
+def test_lstm_regressor_keeps_dropout_when_multiple_layers():
+    model = LSTMRegressor(input_size=3, hidden_size=8, num_layers=2, dropout=0.3)
+
+    assert model.lstm.dropout == 0.3
+
+
+def test_set_seed_makes_weight_initialization_reproducible():
+    set_seed(123)
+    model_a = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1)
+
+    set_seed(123)
+    model_b = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1)
+
+    for p_a, p_b in zip(model_a.parameters(), model_b.parameters()):
+        assert torch.equal(p_a, p_b)
