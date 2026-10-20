@@ -253,6 +253,7 @@ def tune_sequence_models(
             y_val = y[split_labels_arr == "validation"]
 
             input_size = len(feature_columns) + (1 if include_past_target else 0)
+            set_seed()
             model = LSTMRegressor(
                 input_size=input_size,
                 hidden_size=config["hidden_size"],
@@ -340,13 +341,13 @@ def evaluate_final_sequence_model(
 
     include_past_target = config["include_past_target"]
     input_size = len(feature_columns) + (1 if include_past_target else 0)
+    set_seed()
     model = LSTMRegressor(
         input_size=input_size,
         hidden_size=config["hidden_size"],
         num_layers=config["num_layers"],
     )
 
-    set_seed()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = torch.nn.MSELoss()
     X_train_val_t = torch.tensor(sequences["X_train_val"], dtype=torch.float32)
