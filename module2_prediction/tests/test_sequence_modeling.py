@@ -531,6 +531,40 @@ def test_train_lstm_learns_input_dependent_variation_not_constant_output():
     assert np.std(val_preds) > 0.5
 
 
+def test_train_lstm_learns_from_current_features_not_just_sequence():
+    rng = np.random.default_rng(9)
+    n = 64
+    # X_seq는 순수 노이즈(학습 가능한 신호 없음) — target이 X_current에만 의존하게 만들어서,
+    # forward()가 x_current를 실제로 안 쓰면(예: 실수로 무시하거나 0으로 바꿔버리면)
+    # 이 테스트가 실패해야 한다. X_seq만으로 학습하는 기존 테스트
+    # (test_train_lstm_learns_input_dependent_variation_not_constant_output)는 거꾸로
+    # x_current를 무시해도 통과하므로, 이 테스트가 그 빈틈을 채운다.
+    X_seq = rng.normal(0, 1, (n, 4, 2)).astype(np.float32)
+    X_current = rng.normal(0, 1, (n, 2)).astype(np.float32)
+    y = (X_current[:, 0] * 3.0).astype(np.float32)
+
+    X_seq_train, X_current_train, y_train = X_seq[:48], X_current[:48], y[:48]
+    X_seq_val, X_current_val, y_val = X_seq[48:], X_current[48:], y[48:]
+
+    model = LSTMRegressor(input_size=2, hidden_size=8, current_feature_size=2, num_layers=1)
+    best_state_dict, best_epoch = train_lstm(
+        model, X_seq_train, X_current_train, y_train,
+        X_seq_val, X_current_val, y_val,
+        max_epochs=100, patience=100, batch_size=8,
+    )
+
+    restored = LSTMRegressor(input_size=2, hidden_size=8, current_feature_size=2, num_layers=1)
+    restored.load_state_dict(best_state_dict)
+    restored.eval()
+    with torch.no_grad():
+        val_preds = restored(
+            torch.tensor(X_seq_val, dtype=torch.float32),
+            torch.tensor(X_current_val, dtype=torch.float32),
+        ).numpy()
+
+    assert np.std(val_preds) > 0.5
+
+
 def test_tune_sequence_models_metrics_in_original_target_scale():
     rng = np.random.default_rng(7)
     n = 80
