@@ -220,6 +220,9 @@ def _iter_sequence_configs(grid: dict):
                     }
 
 
+_VARIANT_NAMES = {False: "LSTM-X", True: "LSTM-X+y"}
+
+
 def tune_sequence_models(
     df: pd.DataFrame,
     feature_columns: list[str] = FEATURE_COLUMNS,
@@ -228,8 +231,13 @@ def tune_sequence_models(
     max_epochs: int = 500,
     patience: int = 30,
     batch_size: int = 32,
+    lr: float = 1e-3,
 ) -> dict:
     """grid의 각 조합을 Validation R²로 평가해 타겟별 최적 config를 고른다.
+
+    LSTM-X(include_past_target=False)와 LSTM-X+y(include_past_target=True)는
+    서로 독립적으로 최적화된다 — 한쪽이 다른 쪽보다 val_r2가 낮다는 이유로
+    버려지지 않고, 둘 다 각자의 최적 config로 반환된다.
 
     현재 target(y)은 Train만으로 fit한 StandardScaler로 스케일링해서 학습하고(LSTM이
     85% 같은 큰 값을 그대로 맞추려다 수렴하지 못하는 문제를 막기 위함), 예측값만
@@ -238,7 +246,9 @@ def tune_sequence_models(
 
     Test는 scaler fit, 학습, early stopping, config 선택 중 어디에도 쓰지 않는다
     (df에 Test 행이 포함돼 있어도 전체 시간축을 유지하기 위한 것일 뿐, 선택 과정에는 전혀 반영되지 않는다).
-    반환값: {target: {"config": {...}, "best_epoch": int, "val_r2": float, "val_rmse": float, "val_mae": float}}
+
+    반환값: {(variant, target): {"config", "best_epoch", "batch_size", "lr",
+    "val_r2", "val_rmse", "val_mae"}}. variant는 "LSTM-X" 또는 "LSTM-X+y".
     """
     train_df = df[df["split"] == "train"].reset_index(drop=True)
 
@@ -282,7 +292,7 @@ def tune_sequence_models(
 
             best_state_dict, best_epoch = train_lstm(
                 model, X_train, y_train_scaled, X_val, y_val_scaled,
-                max_epochs=max_epochs, patience=patience, batch_size=batch_size,
+                max_epochs=max_epochs, patience=patience, batch_size=batch_size, lr=lr,
             )
             model.load_state_dict(best_state_dict)
 
@@ -297,10 +307,18 @@ def tune_sequence_models(
                 "val_mae": float(mean_absolute_error(y_val, val_preds)),
             }
 
-            entry = {"config": config, "best_epoch": best_epoch, "batch_size": batch_size, **metrics}
+            entry = {
+                "config": config,
+                "best_epoch": best_epoch,
+                "batch_size": batch_size,
+                "lr": lr,
+                **metrics,
+            }
 
-            if target not in best or metrics["val_r2"] > best[target]["val_r2"]:
-                best[target] = entry
+            variant = _VARIANT_NAMES[include_past_target]
+            key = (variant, target)
+            if key not in best or metrics["val_r2"] > best[key]["val_r2"]:
+                best[key] = entry
 
     return best
 
@@ -356,6 +374,7 @@ def evaluate_final_sequence_model(
     best_epoch: int,
     feature_columns: list[str] = FEATURE_COLUMNS,
     batch_size: int = 32,
+    lr: float = 1e-3,
 ) -> dict:
     """Train+Validation으로 scaler를 재fit하고, 선택된 config로 best_epoch만큼 고정
     학습한 뒤(early stopping 없음) Test를 1회 평가한다.
@@ -363,7 +382,7 @@ def evaluate_final_sequence_model(
     현재 target(y)도 Train+Validation으로 fit한 StandardScaler로 스케일링해서 학습하고,
     Test 예측값만 inverse_transform해서 원 단위로 되돌린 뒤 metric을 계산한다 — true y는
     항상 _build_final_sequences()가 준 원본(스케일 안 한) 값을 그대로 쓴다. tuning
-    단계(tune_sequence_models)와 동일한 mini-batch 방식(batch_size)으로 학습해야
+    단계(tune_sequence_models)와 동일한 mini-batch 방식(batch_size, lr)으로 학습해야
     best_epoch의 의미가 두 단계에서 일관된다.
     """
     sequences = _build_final_sequences(df, target, config, feature_columns)
@@ -386,7 +405,7 @@ def evaluate_final_sequence_model(
     train_dataset = TensorDataset(X_train_val_t, y_train_val_t)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss()
 
     model.train()
