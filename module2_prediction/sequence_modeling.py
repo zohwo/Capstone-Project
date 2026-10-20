@@ -1,3 +1,4 @@
+import copy
 import random
 
 import numpy as np
@@ -124,3 +125,63 @@ class LSTMRegressor(nn.Module):
         _, (hidden, _) = self.lstm(x)
         last_hidden = hidden[-1]
         return self.head(last_hidden).squeeze(-1)
+
+
+def train_lstm(
+    model: "LSTMRegressor",
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    max_epochs: int = 200,
+    patience: int = 20,
+    lr: float = 1e-3,
+    seed: int = 42,
+) -> tuple[dict, int]:
+    """Validation loss 기준 early stopping으로 학습한다.
+
+    반환값: (best_state_dict, best_epoch).
+    best_state_dict는 validation loss가 가장 낮았던 시점의 가중치다 (patience가 끝난
+    시점의 마지막 가중치가 아니다). best_epoch은 그 시점까지의 총 epoch 수로 정의한다
+    (0-based 인덱스가 아니라 인덱스 + 1).
+    """
+    set_seed(seed)
+
+    X_train_t = torch.tensor(X_train, dtype=torch.float32)
+    y_train_t = torch.tensor(y_train, dtype=torch.float32)
+    X_val_t = torch.tensor(X_val, dtype=torch.float32)
+    y_val_t = torch.tensor(y_val, dtype=torch.float32)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = torch.nn.MSELoss()
+
+    best_val_loss = float("inf")
+    best_state_dict = copy.deepcopy(model.state_dict())
+    best_epoch_index = 0
+    epochs_without_improvement = 0
+
+    for epoch_index in range(max_epochs):
+        model.train()
+        optimizer.zero_grad()
+        preds = model(X_train_t)
+        loss = loss_fn(preds, y_train_t)
+        loss.backward()
+        optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_preds = model(X_val_t)
+            val_loss = loss_fn(val_preds, y_val_t).item()
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_state_dict = copy.deepcopy(model.state_dict())
+            best_epoch_index = epoch_index
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= patience:
+                break
+
+    best_epoch = best_epoch_index + 1
+    return best_state_dict, best_epoch

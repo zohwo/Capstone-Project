@@ -9,6 +9,7 @@ from module2_prediction.sequence_modeling import (
     fit_feature_scaler,
     fit_history_target_scaler,
     set_seed,
+    train_lstm,
     transform_sequence_inputs,
 )
 
@@ -216,3 +217,52 @@ def test_set_seed_makes_weight_initialization_reproducible():
 
     for p_a, p_b in zip(model_a.parameters(), model_b.parameters()):
         assert torch.equal(p_a, p_b)
+
+
+def _val_loss(model, X_val, y_val) -> float:
+    model.eval()
+    with torch.no_grad():
+        preds = model(torch.tensor(X_val, dtype=torch.float32))
+        return torch.nn.functional.mse_loss(
+            preds, torch.tensor(y_val, dtype=torch.float32)
+        ).item()
+
+
+def test_train_lstm_returns_best_epoch_within_bounds():
+    rng = np.random.default_rng(1)
+    X_train = rng.normal(0, 1, (16, 4, 3)).astype(np.float32)
+    y_train = (X_train[:, -1, 0] * 2.0).astype(np.float32)
+    X_val = rng.normal(0, 1, (8, 4, 3)).astype(np.float32)
+    y_val = (X_val[:, -1, 0] * 2.0).astype(np.float32)
+
+    model = LSTMRegressor(input_size=3, hidden_size=4, num_layers=1)
+    best_state_dict, best_epoch = train_lstm(
+        model, X_train, y_train, X_val, y_val, max_epochs=10, patience=3
+    )
+
+    assert 1 <= best_epoch <= 10
+    assert set(best_state_dict.keys()) == set(model.state_dict().keys())
+
+
+def test_train_lstm_restores_best_validation_weights_not_final_epoch_weights():
+    rng = np.random.default_rng(2)
+    X_train = rng.normal(0, 1, (16, 4, 3)).astype(np.float32)
+    y_train = (X_train[:, -1, 0] * 2.0 + rng.normal(0, 0.1, 16)).astype(np.float32)
+    X_val = rng.normal(0, 1, (8, 4, 3)).astype(np.float32)
+    y_val = (X_val[:, -1, 0] * 2.0 + rng.normal(0, 0.1, 8)).astype(np.float32)
+
+    model = LSTMRegressor(input_size=3, hidden_size=4, num_layers=1)
+    # patience >= max_epochs → early stopping이 절대 발동하지 않고 max_epochs를 전부 돈다.
+    # 이러면 best_val_loss는 전체 궤적의 최솟값이라는 정의상 final epoch의 loss보다
+    # 작거나 같을 수밖에 없다 (수치적 우연이 아니라 알고리즘 자체의 성질).
+    best_state_dict, best_epoch = train_lstm(
+        model, X_train, y_train, X_val, y_val, max_epochs=40, patience=40
+    )
+
+    final_val_loss = _val_loss(model, X_val, y_val)
+
+    restored_model = LSTMRegressor(input_size=3, hidden_size=4, num_layers=1)
+    restored_model.load_state_dict(best_state_dict)
+    restored_val_loss = _val_loss(restored_model, X_val, y_val)
+
+    assert restored_val_loss <= final_val_loss + 1e-6
