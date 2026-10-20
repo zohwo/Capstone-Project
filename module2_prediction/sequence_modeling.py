@@ -169,9 +169,11 @@ class LSTMRegressor(nn.Module):
 
 def train_lstm(
     model: "LSTMRegressor",
-    X_train: np.ndarray,
+    X_seq_train: np.ndarray,
+    X_current_train: np.ndarray,
     y_train: np.ndarray,
-    X_val: np.ndarray,
+    X_seq_val: np.ndarray,
+    X_current_val: np.ndarray,
     y_val: np.ndarray,
     max_epochs: int = 500,
     patience: int = 30,
@@ -182,7 +184,8 @@ def train_lstm(
     """Validation loss 기준 early stopping으로 학습한다 (mini-batch).
 
     y_train/y_val은 호출자가 이미 스케일링해서 넘긴다고 가정한다 — 이 함수는 scaler를
-    전혀 모른다 (X와 동일한 원칙). Validation은 배치로 나누지 않고 한 번에 forward한다.
+    전혀 모른다. X_seq/X_current도 이미 scaled된 배열을 받는다고 가정한다.
+    Validation은 배치로 나누지 않고 한 번에 forward한다.
 
     반환값: (best_state_dict, best_epoch).
     best_state_dict는 validation loss가 가장 낮았던 시점의 가중치다 (patience가 끝난
@@ -191,12 +194,14 @@ def train_lstm(
     """
     set_seed(seed)
 
-    X_train_t = torch.tensor(X_train, dtype=torch.float32)
+    X_seq_train_t = torch.tensor(X_seq_train, dtype=torch.float32)
+    X_current_train_t = torch.tensor(X_current_train, dtype=torch.float32)
     y_train_t = torch.tensor(y_train, dtype=torch.float32)
-    X_val_t = torch.tensor(X_val, dtype=torch.float32)
+    X_seq_val_t = torch.tensor(X_seq_val, dtype=torch.float32)
+    X_current_val_t = torch.tensor(X_current_val, dtype=torch.float32)
     y_val_t = torch.tensor(y_val, dtype=torch.float32)
 
-    train_dataset = TensorDataset(X_train_t, y_train_t)
+    train_dataset = TensorDataset(X_seq_train_t, X_current_train_t, y_train_t)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -209,16 +214,16 @@ def train_lstm(
 
     for epoch_index in range(max_epochs):
         model.train()
-        for X_batch, y_batch in train_loader:
+        for X_seq_batch, X_current_batch, y_batch in train_loader:
             optimizer.zero_grad()
-            preds = model(X_batch)
+            preds = model(X_seq_batch, X_current_batch)
             loss = loss_fn(preds, y_batch)
             loss.backward()
             optimizer.step()
 
         model.eval()
         with torch.no_grad():
-            val_preds = model(X_val_t)
+            val_preds = model(X_seq_val_t, X_current_val_t)
             val_loss = loss_fn(val_preds, y_val_t).item()
 
         if val_loss < best_val_loss:
