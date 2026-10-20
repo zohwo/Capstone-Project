@@ -322,6 +322,24 @@ def test_tune_sequence_models_never_uses_test_target():
     assert not np.isnan(best["y"]["val_r2"])
 
 
+def test_final_stage_scalers_unaffected_by_test_row_mutation():
+    df = _make_tuning_fixture()
+    train_val_df = df[df["split"].isin(["train", "validation"])]
+
+    feature_scaler_before = fit_feature_scaler(train_val_df, ["f1", "f2"])
+    history_scaler_before = fit_history_target_scaler(train_val_df, "y")
+
+    df = df.copy()
+    df.loc[df["split"] == "test", ["f1", "f2", "y"]] = 1e6
+
+    train_val_df_after = df[df["split"].isin(["train", "validation"])]
+    feature_scaler_after = fit_feature_scaler(train_val_df_after, ["f1", "f2"])
+    history_scaler_after = fit_history_target_scaler(train_val_df_after, "y")
+
+    np.testing.assert_allclose(feature_scaler_before.mean_, feature_scaler_after.mean_)
+    np.testing.assert_allclose(history_scaler_before.mean_, history_scaler_after.mean_)
+
+
 def test_build_final_sequences_first_test_window_spans_train_val_boundary():
     df = _make_tuning_fixture(n_train=10, n_val=5, n_test=5)
     config = {"window_size": 4, "hidden_size": 4, "num_layers": 1, "include_past_target": False}
