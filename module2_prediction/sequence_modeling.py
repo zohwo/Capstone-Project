@@ -70,8 +70,10 @@ def fit_feature_scaler(df: pd.DataFrame, feature_columns: list[str]) -> Standard
 
 
 def fit_history_target_scaler(df: pd.DataFrame, target_column: str) -> StandardScaler:
-    """LSTM-X+y에서 과거 입력으로 쓰는 target 값 전용 scaler. 현재 예측 대상 y는
-    별도로 스케일링하지 않으므로 이 scaler는 history input에만 쓴다."""
+    """LSTM-X+y에서 과거 입력(history)으로 쓰는 target 값 전용 scaler다. 현재 예측
+    대상 y에도 별도의 target_scaler가 쓰이지만(tune_sequence_models/
+    evaluate_final_sequence_model이 직접 관리하는 다른 StandardScaler 인스턴스),
+    이 함수가 반환하는 scaler는 그것과 다른 scaler로, history input에만 쓴다."""
     scaler = StandardScaler()
     scaler.fit(df[[target_column]])
     return scaler
@@ -355,7 +357,7 @@ def _build_final_sequences(
     split_labels_arr = np.array(split_labels)
     target_indices_arr = np.array(target_indices)
 
-    train_val_mask = split_labels_arr != "test"
+    train_val_mask = np.isin(split_labels_arr, ["train", "validation"])
     test_mask = split_labels_arr == "test"
 
     return {
