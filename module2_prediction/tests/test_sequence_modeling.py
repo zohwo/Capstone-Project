@@ -232,35 +232,50 @@ def test_transform_sequence_inputs_without_history_scaler_omits_history_column()
 
 
 def test_lstm_regressor_forward_pass_shape():
-    model = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1)
-    x = torch.rand(4, 5, 3)
+    model = LSTMRegressor(input_size=3, hidden_size=8, current_feature_size=2, num_layers=1)
+    x_seq = torch.rand(4, 5, 3)
+    x_current = torch.rand(4, 2)
 
-    output = model(x)
+    output = model(x_seq, x_current)
 
     assert output.shape == (4,)
 
 
 def test_lstm_regressor_forces_zero_dropout_when_single_layer():
-    model = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1, dropout=0.5)
+    model = LSTMRegressor(
+        input_size=3, hidden_size=8, current_feature_size=2, num_layers=1, dropout=0.5
+    )
 
     assert model.lstm.dropout == 0.0
 
 
 def test_lstm_regressor_keeps_dropout_when_multiple_layers():
-    model = LSTMRegressor(input_size=3, hidden_size=8, num_layers=2, dropout=0.3)
+    model = LSTMRegressor(
+        input_size=3, hidden_size=8, current_feature_size=2, num_layers=2, dropout=0.3
+    )
 
     assert model.lstm.dropout == 0.3
 
 
 def test_set_seed_makes_weight_initialization_reproducible():
     set_seed(123)
-    model_a = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1)
+    model_a = LSTMRegressor(input_size=3, hidden_size=8, current_feature_size=2, num_layers=1)
 
     set_seed(123)
-    model_b = LSTMRegressor(input_size=3, hidden_size=8, num_layers=1)
+    model_b = LSTMRegressor(input_size=3, hidden_size=8, current_feature_size=2, num_layers=1)
 
     for p_a, p_b in zip(model_a.parameters(), model_b.parameters()):
         assert torch.equal(p_a, p_b)
+
+
+def test_lstm_regressor_head_input_dim_includes_current_features():
+    model = LSTMRegressor(input_size=3, hidden_size=8, current_feature_size=2, num_layers=1)
+
+    first_linear = model.head[0]
+    assert first_linear.in_features == 8 + 2
+    assert first_linear.out_features == 32
+    last_linear = model.head[-1]
+    assert last_linear.out_features == 1
 
 
 def _val_loss(model, X_val, y_val) -> float:

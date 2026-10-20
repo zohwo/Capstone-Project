@@ -136,7 +136,15 @@ def set_seed(seed: int = 42) -> None:
 
 
 class LSTMRegressor(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int, num_layers: int = 1, dropout: float = 0.0):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        current_feature_size: int,
+        num_layers: int = 1,
+        dropout: float = 0.0,
+        mlp_hidden_size: int = 32,
+    ):
         super().__init__()
         dropout = dropout if num_layers > 1 else 0.0
         self.lstm = nn.LSTM(
@@ -146,12 +154,17 @@ class LSTMRegressor(nn.Module):
             dropout=dropout,
             batch_first=True,
         )
-        self.head = nn.Linear(hidden_size, 1)
+        self.head = nn.Sequential(
+            nn.Linear(hidden_size + current_feature_size, mlp_hidden_size),
+            nn.ReLU(),
+            nn.Linear(mlp_hidden_size, 1),
+        )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        _, (hidden, _) = self.lstm(x)
+    def forward(self, x_seq: torch.Tensor, x_current: torch.Tensor) -> torch.Tensor:
+        _, (hidden, _) = self.lstm(x_seq)
         last_hidden = hidden[-1]
-        return self.head(last_hidden).squeeze(-1)
+        combined = torch.cat([last_hidden, x_current], dim=1)
+        return self.head(combined).squeeze(-1)
 
 
 def train_lstm(
