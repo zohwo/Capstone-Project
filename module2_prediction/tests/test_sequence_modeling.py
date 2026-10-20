@@ -514,3 +514,28 @@ def test_evaluate_final_sequence_model_metrics_in_original_target_scale():
 
     assert metrics["test_rmse"] < 20.0
     assert metrics["test_r2"] > -5.0
+
+
+def test_tune_then_evaluate_final_handoff_uses_consistent_batch_size():
+    df = _make_tuning_fixture(n_train=24, n_val=10, n_test=10)
+    tiny_grid = {
+        "window_size": [3],
+        "hidden_size": [8],
+        "num_layers": [1],
+        "include_past_target": [False],
+    }
+
+    best = tune_sequence_models(
+        df, feature_columns=["f1", "f2"], target_columns=["y"],
+        grid=tiny_grid, max_epochs=5, patience=5, batch_size=8,
+    )
+    entry = best["y"]
+    assert entry["batch_size"] == 8
+
+    metrics = evaluate_final_sequence_model(
+        df, "y", entry["config"], entry["best_epoch"],
+        feature_columns=["f1", "f2"], batch_size=entry["batch_size"],
+    )
+
+    for value in metrics.values():
+        assert np.isfinite(value)

@@ -297,7 +297,7 @@ def tune_sequence_models(
                 "val_mae": float(mean_absolute_error(y_val, val_preds)),
             }
 
-            entry = {"config": config, "best_epoch": best_epoch, **metrics}
+            entry = {"config": config, "best_epoch": best_epoch, "batch_size": batch_size, **metrics}
 
             if target not in best or metrics["val_r2"] > best[target]["val_r2"]:
                 best[target] = entry
