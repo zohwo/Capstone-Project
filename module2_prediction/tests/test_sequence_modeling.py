@@ -5,7 +5,9 @@ import torch
 
 from module2_prediction.sequence_modeling import (
     LSTMRegressor,
+    _build_final_sequences,
     build_sequences,
+    evaluate_final_sequence_model,
     fit_feature_scaler,
     fit_history_target_scaler,
     set_seed,
@@ -318,3 +320,44 @@ def test_tune_sequence_models_never_uses_test_target():
 
     assert "y" in best
     assert not np.isnan(best["y"]["val_r2"])
+
+
+def test_build_final_sequences_first_test_window_spans_train_val_boundary():
+    df = _make_tuning_fixture(n_train=10, n_val=5, n_test=5)
+    config = {"window_size": 4, "hidden_size": 4, "num_layers": 1, "include_past_target": False}
+
+    sequences = _build_final_sequences(df, "y", config, feature_columns=["f1", "f2"])
+
+    n_train_val = 15
+    first_test_target_index = int(sequences["test_target_indices"][0])
+
+    # Test의 첫 target은 train_val이 끝나는 지점에서 시작한다
+    assert first_test_target_index == n_train_val
+    # window = [first_test_target_index - window_size, first_test_target_index)이
+    # 전부 train_val 구간(인덱스 < n_train_val) 안에 있어야 한다 — final 단계에서도
+    # split을 먼저 자르지 않고 전체 df로 시퀀스를 재생성했다는 증거다
+    assert first_test_target_index - config["window_size"] < n_train_val
+
+
+def test_evaluate_final_sequence_model_returns_test_metrics():
+    df = _make_tuning_fixture(n_train=20, n_val=8, n_test=8)
+    config = {"window_size": 3, "hidden_size": 4, "num_layers": 1, "include_past_target": False}
+
+    metrics = evaluate_final_sequence_model(
+        df, "y", config, best_epoch=3, feature_columns=["f1", "f2"]
+    )
+
+    for key in ["test_r2", "test_rmse", "test_mae"]:
+        assert key in metrics
+
+
+def test_evaluate_final_sequence_model_predictions_have_no_nan_or_inf():
+    df = _make_tuning_fixture(n_train=20, n_val=8, n_test=8)
+    config = {"window_size": 3, "hidden_size": 4, "num_layers": 1, "include_past_target": True}
+
+    metrics = evaluate_final_sequence_model(
+        df, "y", config, best_epoch=3, feature_columns=["f1", "f2"]
+    )
+
+    for value in metrics.values():
+        assert np.isfinite(value)
