@@ -35,38 +35,38 @@ def test_build_sequences_window_contains_exactly_preceding_n_rows():
     df = _make_fixture()
     window_size = 5
 
-    X, y, split_labels, target_indices = build_sequences(
-        df, ["idx"], "y", window_size=window_size
-    )
+    sequences = build_sequences(df, ["idx"], "y", window_size=window_size)
 
-    sample_position = target_indices.index(10)
+    sample_position = sequences["target_indices"].index(10)
     expected_window = df.loc[5:9, "idx"].to_numpy().reshape(window_size, 1)
 
-    np.testing.assert_array_equal(X[sample_position], expected_window)
+    np.testing.assert_array_equal(sequences["X_seq"][sample_position], expected_window)
 
 
 def test_build_sequences_assigns_split_by_target_row_not_window():
     df = _make_fixture(n_train=12, n_val=6, n_test=6)
     window_size = 5
 
-    _, _, split_labels, target_indices = build_sequences(df, ["f1", "f2"], "y", window_size=window_size)
+    sequences = build_sequences(df, ["f1", "f2"], "y", window_size=window_size)
 
-    for position, target_index in enumerate(target_indices):
-        assert split_labels[position] == df.loc[target_index, "split"]
+    for position, target_index in enumerate(sequences["target_indices"]):
+        assert sequences["split_labels"][position] == df.loc[target_index, "split"]
 
 
 def test_build_sequences_validation_first_target_window_spans_into_train():
     df = _make_fixture(n_train=12, n_val=6, n_test=6)
     window_size = 5
 
-    X, _, split_labels, target_indices = build_sequences(df, ["idx"], "y", window_size=window_size)
+    sequences = build_sequences(df, ["idx"], "y", window_size=window_size)
+    split_labels = sequences["split_labels"]
+    target_indices = sequences["target_indices"]
 
     first_val_position = split_labels.index("validation")
     first_val_target_index = target_indices[first_val_position]
 
     assert first_val_target_index == 12
     # window = idx 7..11, 전부 train 구간(0~11)에 속함
-    window_values = X[first_val_position, :, 0]
+    window_values = sequences["X_seq"][first_val_position, :, 0]
     np.testing.assert_array_equal(window_values, np.arange(7, 12))
     for idx_value in window_values:
         assert df.loc[int(idx_value), "split"] == "train"
@@ -76,13 +76,15 @@ def test_build_sequences_test_first_target_window_spans_into_validation():
     df = _make_fixture(n_train=12, n_val=6, n_test=6)
     window_size = 5
 
-    X, _, split_labels, target_indices = build_sequences(df, ["idx"], "y", window_size=window_size)
+    sequences = build_sequences(df, ["idx"], "y", window_size=window_size)
+    split_labels = sequences["split_labels"]
+    target_indices = sequences["target_indices"]
 
     first_test_position = split_labels.index("test")
     first_test_target_index = target_indices[first_test_position]
 
     assert first_test_target_index == 18
-    window_values = X[first_test_position, :, 0]
+    window_values = sequences["X_seq"][first_test_position, :, 0]
     np.testing.assert_array_equal(window_values, np.arange(13, 18))
     for idx_value in window_values:
         assert df.loc[int(idx_value), "split"] == "validation"
@@ -92,10 +94,10 @@ def test_build_sequences_never_includes_target_row_or_future_rows():
     df = _make_fixture()
     window_size = 4
 
-    X, _, _, target_indices = build_sequences(df, ["idx"], "y", window_size=window_size)
+    sequences = build_sequences(df, ["idx"], "y", window_size=window_size)
 
-    for position, target_index in enumerate(target_indices):
-        window_values = X[position, :, 0]
+    for position, target_index in enumerate(sequences["target_indices"]):
+        window_values = sequences["X_seq"][position, :, 0]
         assert all(idx_value < target_index for idx_value in window_values)
 
 
@@ -105,13 +107,13 @@ def test_build_sequences_excludes_current_target_when_using_past_target():
     df["y_history"] = df["y"]
     window_size = 4
 
-    X, y, _, target_indices = build_sequences(
+    sequences = build_sequences(
         df, ["f1", "f2"], "y", window_size=window_size, include_past_target=True
     )
 
-    for position, target_index in enumerate(target_indices):
+    for position, target_index in enumerate(sequences["target_indices"]):
         current_target_value = target_index * 1000.0
-        history_values = X[position, :, -1]
+        history_values = sequences["X_seq"][position, :, -1]
         assert current_target_value not in history_values
         expected_history = np.arange(target_index - window_size, target_index) * 1000.0
         np.testing.assert_array_equal(history_values, expected_history)
@@ -129,12 +131,51 @@ def test_build_sequences_output_shape_for_x_and_xy_variants():
     df["y_history"] = df["y"]
     window_size = 5
 
-    X_only, y_only, _, _ = build_sequences(df, ["f1", "f2"], "y", window_size=window_size)
-    X_xy, y_xy, _, _ = build_sequences(df, ["f1", "f2"], "y", window_size=window_size, include_past_target=True)
+    seq_only = build_sequences(df, ["f1", "f2"], "y", window_size=window_size)
+    seq_xy = build_sequences(df, ["f1", "f2"], "y", window_size=window_size, include_past_target=True)
 
-    assert X_only.shape[1:] == (window_size, 2)
-    assert X_xy.shape[1:] == (window_size, 3)
-    assert X_only.shape[0] == X_xy.shape[0] == len(y_only) == len(y_xy)
+    assert seq_only["X_seq"].shape[1:] == (window_size, 2)
+    assert seq_xy["X_seq"].shape[1:] == (window_size, 3)
+    assert seq_only["X_current"].shape[1:] == (2,)
+    assert seq_xy["X_current"].shape[1:] == (2,)
+    n_samples = seq_only["X_seq"].shape[0]
+    assert n_samples == seq_xy["X_seq"].shape[0] == len(seq_only["y"]) == len(seq_xy["y"])
+    assert seq_only["X_current"].shape[0] == seq_xy["X_current"].shape[0] == n_samples
+
+
+def test_build_sequences_current_features_match_target_row():
+    df = _make_fixture(n_train=12, n_val=6, n_test=6)
+    window_size = 5
+
+    sequences = build_sequences(df, ["f1", "f2"], "y", window_size=window_size)
+
+    for position, target_index in enumerate(sequences["target_indices"]):
+        expected = df.loc[target_index, ["f1", "f2"]].to_numpy(dtype=float)
+        np.testing.assert_array_equal(sequences["X_current"][position], expected)
+
+
+def test_build_sequences_current_features_exclude_target_value():
+    df = _make_fixture(n_train=12, n_val=6, n_test=6)
+    df["y"] = df["idx"] * 1000.0
+    window_size = 4
+
+    sequences = build_sequences(df, ["f1", "f2"], "y", window_size=window_size)
+
+    for position, target_index in enumerate(sequences["target_indices"]):
+        current_target_value = target_index * 1000.0
+        assert current_target_value not in sequences["X_current"][position]
+
+
+def test_build_sequences_current_features_width_unaffected_by_include_past_target():
+    df = _make_fixture()
+    df["y_history"] = df["y"]
+    window_size = 5
+
+    seq_x = build_sequences(df, ["f1", "f2"], "y", window_size=window_size, include_past_target=False)
+    seq_xy = build_sequences(df, ["f1", "f2"], "y", window_size=window_size, include_past_target=True)
+
+    assert seq_x["X_current"].shape[1] == 2
+    assert seq_xy["X_current"].shape[1] == 2
 
 
 def test_fit_feature_scaler_matches_given_rows_statistics():
