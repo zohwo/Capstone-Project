@@ -355,9 +355,17 @@ def evaluate_final_sequence_model(
     config: dict,
     best_epoch: int,
     feature_columns: list[str] = FEATURE_COLUMNS,
+    batch_size: int = 32,
 ) -> dict:
     """Train+Validation으로 scaler를 재fit하고, 선택된 config로 best_epoch만큼 고정
-    학습한 뒤(early stopping 없음) Test를 1회 평가한다."""
+    학습한 뒤(early stopping 없음) Test를 1회 평가한다.
+
+    현재 target(y)도 Train+Validation으로 fit한 StandardScaler로 스케일링해서 학습하고,
+    Test 예측값만 inverse_transform해서 원 단위로 되돌린 뒤 metric을 계산한다 — true y는
+    항상 _build_final_sequences()가 준 원본(스케일 안 한) 값을 그대로 쓴다. tuning
+    단계(tune_sequence_models)와 동일한 mini-batch 방식(batch_size)으로 학습해야
+    best_epoch의 의미가 두 단계에서 일관된다.
+    """
     sequences = _build_final_sequences(df, target, config, feature_columns)
 
     include_past_target = config["include_past_target"]
@@ -369,22 +377,31 @@ def evaluate_final_sequence_model(
         num_layers=config["num_layers"],
     )
 
+    target_scaler = StandardScaler()
+    target_scaler.fit(sequences["y_train_val"].reshape(-1, 1))
+    y_train_val_scaled = target_scaler.transform(sequences["y_train_val"].reshape(-1, 1)).ravel()
+
+    X_train_val_t = torch.tensor(sequences["X_train_val"], dtype=torch.float32)
+    y_train_val_t = torch.tensor(y_train_val_scaled, dtype=torch.float32)
+    train_dataset = TensorDataset(X_train_val_t, y_train_val_t)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = torch.nn.MSELoss()
-    X_train_val_t = torch.tensor(sequences["X_train_val"], dtype=torch.float32)
-    y_train_val_t = torch.tensor(sequences["y_train_val"], dtype=torch.float32)
 
     model.train()
     for _ in range(best_epoch):
-        optimizer.zero_grad()
-        preds = model(X_train_val_t)
-        loss = loss_fn(preds, y_train_val_t)
-        loss.backward()
-        optimizer.step()
+        for X_batch, y_batch in train_loader:
+            optimizer.zero_grad()
+            preds = model(X_batch)
+            loss = loss_fn(preds, y_batch)
+            loss.backward()
+            optimizer.step()
 
     model.eval()
     with torch.no_grad():
-        test_preds = model(torch.tensor(sequences["X_test"], dtype=torch.float32)).numpy()
+        test_preds_scaled = model(torch.tensor(sequences["X_test"], dtype=torch.float32)).numpy()
+    test_preds = target_scaler.inverse_transform(test_preds_scaled.reshape(-1, 1)).ravel()
 
     y_test = sequences["y_test"]
     return {
