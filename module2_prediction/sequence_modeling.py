@@ -225,10 +225,16 @@ def tune_sequence_models(
     feature_columns: list[str] = FEATURE_COLUMNS,
     target_columns: list[str] = TARGET_COLUMNS,
     grid: dict = SEQUENCE_HYPERPARAMETER_GRID,
-    max_epochs: int = 200,
-    patience: int = 20,
+    max_epochs: int = 500,
+    patience: int = 30,
+    batch_size: int = 32,
 ) -> dict:
     """grid의 각 조합을 Validation R²로 평가해 타겟별 최적 config를 고른다.
+
+    현재 target(y)은 Train만으로 fit한 StandardScaler로 스케일링해서 학습하고(LSTM이
+    85% 같은 큰 값을 그대로 맞추려다 수렴하지 못하는 문제를 막기 위함), 예측값만
+    inverse_transform해서 원 단위로 되돌린 뒤 metric을 계산한다 — true y는 항상
+    build_sequences()가 준 원본(스케일 안 한) 값을 그대로 쓴다.
 
     Test는 scaler fit, 학습, early stopping, config 선택 중 어디에도 쓰지 않는다
     (df에 Test 행이 포함돼 있어도 전체 시간축을 유지하기 위한 것일 뿐, 선택 과정에는 전혀 반영되지 않는다).
@@ -261,6 +267,11 @@ def tune_sequence_models(
             X_val = X[split_labels_arr == "validation"]
             y_val = y[split_labels_arr == "validation"]
 
+            target_scaler = StandardScaler()
+            target_scaler.fit(y_train.reshape(-1, 1))
+            y_train_scaled = target_scaler.transform(y_train.reshape(-1, 1)).ravel()
+            y_val_scaled = target_scaler.transform(y_val.reshape(-1, 1)).ravel()
+
             input_size = len(feature_columns) + (1 if include_past_target else 0)
             set_seed()
             model = LSTMRegressor(
@@ -270,14 +281,15 @@ def tune_sequence_models(
             )
 
             best_state_dict, best_epoch = train_lstm(
-                model, X_train, y_train, X_val, y_val,
-                max_epochs=max_epochs, patience=patience,
+                model, X_train, y_train_scaled, X_val, y_val_scaled,
+                max_epochs=max_epochs, patience=patience, batch_size=batch_size,
             )
             model.load_state_dict(best_state_dict)
 
             model.eval()
             with torch.no_grad():
-                val_preds = model(torch.tensor(X_val, dtype=torch.float32)).numpy()
+                val_preds_scaled = model(torch.tensor(X_val, dtype=torch.float32)).numpy()
+            val_preds = target_scaler.inverse_transform(val_preds_scaled.reshape(-1, 1)).ravel()
 
             metrics = {
                 "val_r2": float(r2_score(y_val, val_preds)),
