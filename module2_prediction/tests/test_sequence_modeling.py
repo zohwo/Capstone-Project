@@ -278,10 +278,13 @@ def test_lstm_regressor_head_input_dim_includes_current_features():
     assert last_linear.out_features == 1
 
 
-def _val_loss(model, X_val, y_val) -> float:
+def _val_loss(model, X_seq_val, X_current_val, y_val) -> float:
     model.eval()
     with torch.no_grad():
-        preds = model(torch.tensor(X_val, dtype=torch.float32))
+        preds = model(
+            torch.tensor(X_seq_val, dtype=torch.float32),
+            torch.tensor(X_current_val, dtype=torch.float32),
+        )
         return torch.nn.functional.mse_loss(
             preds, torch.tensor(y_val, dtype=torch.float32)
         ).item()
@@ -289,14 +292,17 @@ def _val_loss(model, X_val, y_val) -> float:
 
 def test_train_lstm_returns_best_epoch_within_bounds():
     rng = np.random.default_rng(1)
-    X_train = rng.normal(0, 1, (16, 4, 3)).astype(np.float32)
-    y_train = (X_train[:, -1, 0] * 2.0).astype(np.float32)
-    X_val = rng.normal(0, 1, (8, 4, 3)).astype(np.float32)
-    y_val = (X_val[:, -1, 0] * 2.0).astype(np.float32)
+    X_seq_train = rng.normal(0, 1, (16, 4, 3)).astype(np.float32)
+    X_current_train = rng.normal(0, 1, (16, 3)).astype(np.float32)
+    y_train = (X_seq_train[:, -1, 0] * 2.0).astype(np.float32)
+    X_seq_val = rng.normal(0, 1, (8, 4, 3)).astype(np.float32)
+    X_current_val = rng.normal(0, 1, (8, 3)).astype(np.float32)
+    y_val = (X_seq_val[:, -1, 0] * 2.0).astype(np.float32)
 
-    model = LSTMRegressor(input_size=3, hidden_size=4, num_layers=1)
+    model = LSTMRegressor(input_size=3, hidden_size=4, current_feature_size=3, num_layers=1)
     best_state_dict, best_epoch = train_lstm(
-        model, X_train, y_train, X_val, y_val, max_epochs=10, patience=3
+        model, X_seq_train, X_current_train, y_train,
+        X_seq_val, X_current_val, y_val, max_epochs=10, patience=3,
     )
 
     assert 1 <= best_epoch <= 10
@@ -305,24 +311,25 @@ def test_train_lstm_returns_best_epoch_within_bounds():
 
 def test_train_lstm_restores_best_validation_weights_not_final_epoch_weights():
     rng = np.random.default_rng(2)
-    X_train = rng.normal(0, 1, (16, 4, 3)).astype(np.float32)
-    y_train = (X_train[:, -1, 0] * 2.0 + rng.normal(0, 0.1, 16)).astype(np.float32)
-    X_val = rng.normal(0, 1, (8, 4, 3)).astype(np.float32)
-    y_val = (X_val[:, -1, 0] * 2.0 + rng.normal(0, 0.1, 8)).astype(np.float32)
+    X_seq_train = rng.normal(0, 1, (16, 4, 3)).astype(np.float32)
+    X_current_train = rng.normal(0, 1, (16, 3)).astype(np.float32)
+    y_train = (X_seq_train[:, -1, 0] * 2.0 + rng.normal(0, 0.1, 16)).astype(np.float32)
+    X_seq_val = rng.normal(0, 1, (8, 4, 3)).astype(np.float32)
+    X_current_val = rng.normal(0, 1, (8, 3)).astype(np.float32)
+    y_val = (X_seq_val[:, -1, 0] * 2.0 + rng.normal(0, 0.1, 8)).astype(np.float32)
 
-    model = LSTMRegressor(input_size=3, hidden_size=4, num_layers=1)
+    model = LSTMRegressor(input_size=3, hidden_size=4, current_feature_size=3, num_layers=1)
     # patience >= max_epochs → early stopping이 절대 발동하지 않고 max_epochs를 전부 돈다.
-    # 이러면 best_val_loss는 전체 궤적의 최솟값이라는 정의상 final epoch의 loss보다
-    # 작거나 같을 수밖에 없다 (수치적 우연이 아니라 알고리즘 자체의 성질).
     best_state_dict, best_epoch = train_lstm(
-        model, X_train, y_train, X_val, y_val, max_epochs=40, patience=40
+        model, X_seq_train, X_current_train, y_train,
+        X_seq_val, X_current_val, y_val, max_epochs=40, patience=40,
     )
 
-    final_val_loss = _val_loss(model, X_val, y_val)
+    final_val_loss = _val_loss(model, X_seq_val, X_current_val, y_val)
 
-    restored_model = LSTMRegressor(input_size=3, hidden_size=4, num_layers=1)
+    restored_model = LSTMRegressor(input_size=3, hidden_size=4, current_feature_size=3, num_layers=1)
     restored_model.load_state_dict(best_state_dict)
-    restored_val_loss = _val_loss(restored_model, X_val, y_val)
+    restored_val_loss = _val_loss(restored_model, X_seq_val, X_current_val, y_val)
 
     assert restored_val_loss <= final_val_loss + 1e-6
 
@@ -441,12 +448,14 @@ def test_evaluate_final_sequence_model_predictions_have_no_nan_or_inf():
 
 def test_train_lstm_batch_size_controls_steps_per_epoch():
     rng = np.random.default_rng(6)
-    X_train = rng.normal(0, 1, (10, 3, 2)).astype(np.float32)
+    X_seq_train = rng.normal(0, 1, (10, 3, 2)).astype(np.float32)
+    X_current_train = rng.normal(0, 1, (10, 2)).astype(np.float32)
     y_train = rng.normal(0, 1, 10).astype(np.float32)
-    X_val = rng.normal(0, 1, (4, 3, 2)).astype(np.float32)
+    X_seq_val = rng.normal(0, 1, (4, 3, 2)).astype(np.float32)
+    X_current_val = rng.normal(0, 1, (4, 2)).astype(np.float32)
     y_val = rng.normal(0, 1, 4).astype(np.float32)
 
-    model = LSTMRegressor(input_size=2, hidden_size=4, num_layers=1)
+    model = LSTMRegressor(input_size=2, hidden_size=4, current_feature_size=2, num_layers=1)
 
     step_calls = []
     original_step = torch.optim.Adam.step
@@ -457,7 +466,10 @@ def test_train_lstm_batch_size_controls_steps_per_epoch():
 
     torch.optim.Adam.step = counting_step
     try:
-        train_lstm(model, X_train, y_train, X_val, y_val, max_epochs=1, patience=1, batch_size=4)
+        train_lstm(
+            model, X_seq_train, X_current_train, y_train,
+            X_seq_val, X_current_val, y_val, max_epochs=1, patience=1, batch_size=4,
+        )
     finally:
         torch.optim.Adam.step = original_step
 
@@ -468,33 +480,31 @@ def test_train_lstm_batch_size_controls_steps_per_epoch():
 def test_train_lstm_learns_input_dependent_variation_not_constant_output():
     rng = np.random.default_rng(5)
     n = 64
-    X = rng.normal(0, 1, (n, 4, 2)).astype(np.float32)
-    # 주의: target을 0 근처로 유지한다(오프셋을 더하지 않음). 이 테스트는 mini-batch
-    # 하나만의 효과를 분리해서 보려는 것이고, target이 0에서 멀리 떨어져 있으면(예:
-    # +50) Adam이 input-dependent weight보다 bias(평균 맞추기)부터 흡수해버려서
-    # mini-batch를 추가해도 입력 의존적 분산이 쉽게 안 생긴다 — 그건 Task 2/3의
-    # target scaling이 해결할 별개의 원인이라 여기서 같이 테스트하면 안 된다.
-    y = (X[:, -1, 0] * 3.0).astype(np.float32)
+    X_seq = rng.normal(0, 1, (n, 4, 2)).astype(np.float32)
+    X_current = rng.normal(0, 1, (n, 2)).astype(np.float32)
+    # 주의: target을 0 근처로 유지한다(오프셋을 더하지 않음) — mini-batch 하나만의
+    # 효과를 분리해서 보려는 테스트다.
+    y = (X_seq[:, -1, 0] * 3.0).astype(np.float32)
 
-    X_train, y_train = X[:48], y[:48]
-    X_val, y_val = X[48:], y[48:]
+    X_seq_train, X_current_train, y_train = X_seq[:48], X_current[:48], y[:48]
+    X_seq_val, X_current_val, y_val = X_seq[48:], X_current[48:], y[48:]
 
-    model = LSTMRegressor(input_size=2, hidden_size=8, num_layers=1)
+    model = LSTMRegressor(input_size=2, hidden_size=8, current_feature_size=2, num_layers=1)
     best_state_dict, best_epoch = train_lstm(
-        model, X_train, y_train, X_val, y_val,
+        model, X_seq_train, X_current_train, y_train,
+        X_seq_val, X_current_val, y_val,
         max_epochs=100, patience=100, batch_size=8,
     )
 
-    restored = LSTMRegressor(input_size=2, hidden_size=8, num_layers=1)
+    restored = LSTMRegressor(input_size=2, hidden_size=8, current_feature_size=2, num_layers=1)
     restored.load_state_dict(best_state_dict)
     restored.eval()
     with torch.no_grad():
-        val_preds = restored(torch.tensor(X_val, dtype=torch.float32)).numpy()
+        val_preds = restored(
+            torch.tensor(X_seq_val, dtype=torch.float32),
+            torch.tensor(X_current_val, dtype=torch.float32),
+        ).numpy()
 
-    # 예전 full-batch(epoch당 1 step)였다면 이 정도 epoch 수로는 거의 상수(std≈0)에
-    # 머물렀다 — mini-batch(batch_size=8, 6 step/epoch)라면 input에 따라 실제로
-    # 달라지는 예측을 내야 한다. target이 0 근처라 bias 쪽에 큰 gradient가 쏠리지
-    # 않으므로, 이 변동성은 mini-batch 자체의 효과로 귀속할 수 있다.
     assert np.std(val_preds) > 0.5
 
 
