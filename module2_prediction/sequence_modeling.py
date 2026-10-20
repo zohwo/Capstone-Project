@@ -18,16 +18,26 @@ def build_sequences(
     target_column: str,
     window_size: int,
     include_past_target: bool = False,
-) -> tuple[np.ndarray, np.ndarray, list[str], list[int]]:
-    """전체 시간순 df에서 각 target row마다 직전 window_size개 행을 window로 구성한다.
+) -> dict:
+    """전체 시간순 df에서 각 target row마다 직전 window_size개 행을 window(X_seq)로
+    구성하고, target row 자신의 feature(X_current)도 함께 반환한다.
 
     split은 window가 걸치는 범위가 아니라 target row 자신의 `split` 값으로 정해진다.
     window_size보다 앞선 행이 없는 target(맨 앞 window_size개 행)은 생성하지 않는다.
 
+    X_current는 target row `i`의 feature_columns를 그대로 읽은 것이다 (df가 이미
+    transform_sequence_inputs()로 스케일된 상태라고 가정, 별도 scaler를 새로 fit하지
+    않는다). include_past_target 값과 무관하게 항상 len(feature_columns)개 폭이다 —
+    history 컬럼은 X_seq에만 들어가고 X_current에는 절대 포함되지 않는다.
+
     include_past_target=True면 f"{target_column}_history" 컬럼(transform_sequence_inputs()가
-    생성하는, 스케일된 과거 target)을 각 timestep 입력의 마지막 차원에 추가한다. 과거 배치의
-    실제 회수율이 다음 배치 예측 전에 이미 확보되어 있다는 운영 가정 하에서만 유효하다
-    (설계 문서 섹션 5.2 참고, 이 데이터셋에 대해 별도로 검증되지 않은 가정).
+    생성하는, 스케일된 과거 target)을 X_seq의 각 timestep 입력 마지막 차원에 추가한다.
+    과거 배치의 실제 회수율이 다음 배치 예측 전에 이미 확보되어 있다는 운영 가정
+    하에서만 유효하다 (이 데이터셋에 대해 별도로 검증되지 않은 가정).
+
+    현재 target y(t)는 X_seq와 X_current 어디에도 절대 포함되지 않는다.
+
+    반환값: {"X_seq", "X_current", "y", "split_labels", "target_indices"}
     """
     history_column = f"{target_column}_history"
     if include_past_target and history_column not in df.columns:
@@ -36,7 +46,8 @@ def build_sequences(
             "transform_sequence_inputs()로 먼저 생성하세요."
         )
 
-    X_list: list[np.ndarray] = []
+    X_seq_list: list[np.ndarray] = []
+    X_current_list: list[np.ndarray] = []
     y_list: list[float] = []
     split_labels: list[str] = []
     target_indices: list[int] = []
@@ -49,16 +60,26 @@ def build_sequences(
             history = window[[history_column]].to_numpy(dtype=float)
             feats = np.concatenate([feats, history], axis=1)
 
-        X_list.append(feats)
+        X_seq_list.append(feats)
+        X_current_list.append(df.iloc[i][feature_columns].to_numpy(dtype=float))
         y_list.append(float(df.iloc[i][target_column]))
         split_labels.append(df.iloc[i]["split"])
         target_indices.append(i)
 
-    n_features = len(feature_columns) + (1 if include_past_target else 0)
-    X = np.stack(X_list) if X_list else np.empty((0, window_size, n_features))
+    n_seq_features = len(feature_columns) + (1 if include_past_target else 0)
+    X_seq = np.stack(X_seq_list) if X_seq_list else np.empty((0, window_size, n_seq_features))
+    X_current = (
+        np.stack(X_current_list) if X_current_list else np.empty((0, len(feature_columns)))
+    )
     y = np.array(y_list, dtype=float)
 
-    return X, y, split_labels, target_indices
+    return {
+        "X_seq": X_seq,
+        "X_current": X_current,
+        "y": y,
+        "split_labels": split_labels,
+        "target_indices": target_indices,
+    }
 
 
 def fit_feature_scaler(df: pd.DataFrame, feature_columns: list[str]) -> StandardScaler:
