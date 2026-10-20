@@ -280,8 +280,11 @@ def tune_sequence_models(
     서로 독립적으로 최적화된다 — 한쪽이 다른 쪽보다 val_r2가 낮다는 이유로
     버려지지 않고, 둘 다 각자의 최적 config로 반환된다.
 
-    현재 target(y)은 Train만으로 fit한 StandardScaler로 스케일링해서 학습하고(LSTM이
-    85% 같은 큰 값을 그대로 맞추려다 수렴하지 못하는 문제를 막기 위함), 예측값만
+    각 샘플의 입력은 과거 window(X_seq) + 현재 배치 feature(X_current) 쌍이다 —
+    tabular 모델(RF/XGBoost/LightGBM)이 쓰는 X(t)와 동일한 정보를 LSTM도 보게 해서
+    "시계열 맥락이 현재 정보 대비 추가 가치를 주는가"를 공정하게 비교하기 위함이다.
+
+    현재 target(y)은 Train만으로 fit한 StandardScaler로 스케일링해서 학습하고, 예측값만
     inverse_transform해서 원 단위로 되돌린 뒤 metric을 계산한다 — true y는 항상
     build_sequences()가 준 원본(스케일 안 한) 값을 그대로 쓴다.
 
@@ -308,15 +311,17 @@ def tune_sequence_models(
                 df, feature_columns, target, feature_scaler, history_target_scaler
             )
 
-            X, y, split_labels, _ = build_sequences(
+            sequences = build_sequences(
                 transformed, feature_columns, target, window_size, include_past_target
             )
-            split_labels_arr = np.array(split_labels)
+            split_labels_arr = np.array(sequences["split_labels"])
 
-            X_train = X[split_labels_arr == "train"]
-            y_train = y[split_labels_arr == "train"]
-            X_val = X[split_labels_arr == "validation"]
-            y_val = y[split_labels_arr == "validation"]
+            X_seq_train = sequences["X_seq"][split_labels_arr == "train"]
+            X_current_train = sequences["X_current"][split_labels_arr == "train"]
+            y_train = sequences["y"][split_labels_arr == "train"]
+            X_seq_val = sequences["X_seq"][split_labels_arr == "validation"]
+            X_current_val = sequences["X_current"][split_labels_arr == "validation"]
+            y_val = sequences["y"][split_labels_arr == "validation"]
 
             target_scaler = StandardScaler()
             target_scaler.fit(y_train.reshape(-1, 1))
@@ -328,18 +333,23 @@ def tune_sequence_models(
             model = LSTMRegressor(
                 input_size=input_size,
                 hidden_size=config["hidden_size"],
+                current_feature_size=len(feature_columns),
                 num_layers=config["num_layers"],
             )
 
             best_state_dict, best_epoch = train_lstm(
-                model, X_train, y_train_scaled, X_val, y_val_scaled,
+                model, X_seq_train, X_current_train, y_train_scaled,
+                X_seq_val, X_current_val, y_val_scaled,
                 max_epochs=max_epochs, patience=patience, batch_size=batch_size, lr=lr,
             )
             model.load_state_dict(best_state_dict)
 
             model.eval()
             with torch.no_grad():
-                val_preds_scaled = model(torch.tensor(X_val, dtype=torch.float32)).numpy()
+                val_preds_scaled = model(
+                    torch.tensor(X_seq_val, dtype=torch.float32),
+                    torch.tensor(X_current_val, dtype=torch.float32),
+                ).numpy()
             val_preds = target_scaler.inverse_transform(val_preds_scaled.reshape(-1, 1)).ravel()
 
             metrics = {
