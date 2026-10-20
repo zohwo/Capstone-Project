@@ -5,7 +5,10 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
+
+from module2_prediction.config import FEATURE_COLUMNS, TARGET_COLUMNS
 
 
 def build_sequences(
@@ -185,3 +188,96 @@ def train_lstm(
 
     best_epoch = best_epoch_index + 1
     return best_state_dict, best_epoch
+
+
+SEQUENCE_HYPERPARAMETER_GRID = {
+    "window_size": [5, 10, 20],
+    "hidden_size": [16, 32],
+    "num_layers": [1, 2],
+    "include_past_target": [False, True],
+}
+
+
+def _iter_sequence_configs(grid: dict):
+    for window_size in grid["window_size"]:
+        for hidden_size in grid["hidden_size"]:
+            for num_layers in grid["num_layers"]:
+                for include_past_target in grid["include_past_target"]:
+                    yield {
+                        "window_size": window_size,
+                        "hidden_size": hidden_size,
+                        "num_layers": num_layers,
+                        "include_past_target": include_past_target,
+                    }
+
+
+def tune_sequence_models(
+    df: pd.DataFrame,
+    feature_columns: list[str] = FEATURE_COLUMNS,
+    target_columns: list[str] = TARGET_COLUMNS,
+    grid: dict = SEQUENCE_HYPERPARAMETER_GRID,
+    max_epochs: int = 200,
+    patience: int = 20,
+) -> dict:
+    """grid의 각 조합을 Validation R²로 평가해 타겟별 최적 config를 고른다.
+
+    Test는 scaler fit, 학습, early stopping, config 선택 중 어디에도 쓰지 않는다
+    (df에 Test 행이 포함돼 있어도 전체 시간축을 유지하기 위한 것일 뿐, 선택 과정에는 전혀 반영되지 않는다).
+    반환값: {target: {"config": {...}, "best_epoch": int, "val_r2": float, "val_rmse": float, "val_mae": float}}
+    """
+    train_df = df[df["split"] == "train"].reset_index(drop=True)
+
+    best: dict = {}
+    for target in target_columns:
+        for config in _iter_sequence_configs(grid):
+            window_size = config["window_size"]
+            include_past_target = config["include_past_target"]
+
+            feature_scaler = fit_feature_scaler(train_df, feature_columns)
+            history_target_scaler = (
+                fit_history_target_scaler(train_df, target) if include_past_target else None
+            )
+
+            transformed = transform_sequence_inputs(
+                df, feature_columns, target, feature_scaler, history_target_scaler
+            )
+
+            X, y, split_labels, _ = build_sequences(
+                transformed, feature_columns, target, window_size, include_past_target
+            )
+            split_labels_arr = np.array(split_labels)
+
+            X_train = X[split_labels_arr == "train"]
+            y_train = y[split_labels_arr == "train"]
+            X_val = X[split_labels_arr == "validation"]
+            y_val = y[split_labels_arr == "validation"]
+
+            input_size = len(feature_columns) + (1 if include_past_target else 0)
+            model = LSTMRegressor(
+                input_size=input_size,
+                hidden_size=config["hidden_size"],
+                num_layers=config["num_layers"],
+            )
+
+            best_state_dict, best_epoch = train_lstm(
+                model, X_train, y_train, X_val, y_val,
+                max_epochs=max_epochs, patience=patience,
+            )
+            model.load_state_dict(best_state_dict)
+
+            model.eval()
+            with torch.no_grad():
+                val_preds = model(torch.tensor(X_val, dtype=torch.float32)).numpy()
+
+            metrics = {
+                "val_r2": float(r2_score(y_val, val_preds)),
+                "val_rmse": float(np.sqrt(mean_squared_error(y_val, val_preds))),
+                "val_mae": float(mean_absolute_error(y_val, val_preds)),
+            }
+
+            entry = {"config": config, "best_epoch": best_epoch, **metrics}
+
+            if target not in best or metrics["val_r2"] > best[target]["val_r2"]:
+                best[target] = entry
+
+    return best
