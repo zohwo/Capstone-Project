@@ -23,6 +23,9 @@ cells.append(nbf.v4.new_code_cell(
     "from module2_prediction.evaluation import evaluate_final_model\n"
     "from module2_prediction.interpretation import get_feature_importance, compute_shap_values\n"
     "from module2_prediction.scenario import partial_dependence, predict_blend_scenario\n\n"
+    "import matplotlib\n"
+    "matplotlib.rcParams['font.family'] = ['Noto Sans CJK JP', 'DejaVu Sans']\n"
+    "matplotlib.rcParams['axes.unicode_minus'] = False\n\n"
     "CLEANED_DATA_PATH = Path('../data/processed/cleaned_features.csv')\n"
     "FIGURES_DIR = Path('../module2_prediction/reports/figures')\n"
     "FIGURES_DIR.mkdir(parents=True, exist_ok=True)"
@@ -138,6 +141,60 @@ cells.append(nbf.v4.new_code_cell(
     "model = interpretation_models[target]\n\n"
     "blend_prediction = predict_blend_scenario(model, train_val_df, grade_a='A', grade_b='C', ratio_a=0.7)\n"
     "print(f'A:C = 7:3 혼합 예상 {target}: {blend_prediction:.2f}%')"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "## 9. LSTM 시퀀스 모델 비교 (LSTM-X vs LSTM-X+y)\n\n"
+    "과거 N개 배치의 흐름으로 다음 배치의 회수율을 예측하는 LSTM. `sequence_modeling.py`는 "
+    "모듈 1과 위 tabular 모델들(`modeling.py`/`tuning.py`/`evaluation.py`)을 전혀 import하지 않는 "
+    "독립 모듈이다.\n\n"
+    "- **LSTM-X**: 과거 공정 feature만 사용\n"
+    "- **LSTM-X+y**: 과거 공정 feature + 과거 실제 회수율까지 사용 (직전 배치의 실제 회수율이 "
+    "다음 배치 예측 전에 확보된다는 운영 가정 필요)\n\n"
+    "두 변형을 그리드에서 분리해서 각각 튜닝·평가한다(`tune_sequence_models`의 `grid` 인자로 "
+    "`include_past_target`을 고정)."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "from module2_prediction.sequence_modeling import (\n"
+    "    tune_sequence_models,\n"
+    "    evaluate_final_sequence_model,\n"
+    ")\n\n"
+    "sequence_results = {}\n"
+    "for target in TARGET_COLUMNS:\n"
+    "    tuned = tune_sequence_models(df, feature_columns=FEATURE_COLUMNS, target_columns=[target])\n"
+    "    for variant_name in ['LSTM-X', 'LSTM-X+y']:\n"
+    "        tuned_entry = tuned[(variant_name, target)]\n"
+    "        test_metrics = evaluate_final_sequence_model(\n"
+    "            df, target, tuned_entry['config'], tuned_entry['best_epoch'],\n"
+    "            feature_columns=FEATURE_COLUMNS,\n"
+    "            batch_size=tuned_entry['batch_size'], lr=tuned_entry['lr'],\n"
+    "        )\n"
+    "        sequence_results[(variant_name, target)] = {\n"
+    "            'config': tuned_entry['config'],\n"
+    "            'val_r2': tuned_entry['val_r2'],\n"
+    "            **test_metrics,\n"
+    "        }\n\n"
+    "pd.DataFrame(sequence_results).T"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "## 10. 최종 비교: Tabular baseline vs LSTM-X vs LSTM-X+y\n\n"
+    "단순 성능 순위가 아니라 두 비교축으로 해석한다.\n\n"
+    "- **LSTM-X vs Tabular baseline** → 시계열 구조 자체의 효과\n"
+    "- **LSTM-X vs LSTM-X+y** → 과거 실제 회수율 정보를 추가했을 때의 효과 (단, LSTM-X+y는 "
+    "그만큼 더 강한 운영 가정을 요구한다)"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "comparison = {}\n"
+    "for target in TARGET_COLUMNS:\n"
+    "    comparison[('Tabular-best', target)] = final_results[target]\n"
+    "    for variant_name in ['LSTM-X', 'LSTM-X+y']:\n"
+    "        comparison[(variant_name, target)] = {\n"
+    "            k: v for k, v in sequence_results[(variant_name, target)].items() if k != 'config'\n"
+    "        }\n\n"
+    "pd.DataFrame(comparison).T"
 ))
 
 nb["cells"] = cells

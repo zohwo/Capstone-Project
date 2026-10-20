@@ -283,7 +283,7 @@ def _make_tuning_fixture(n_train=20, n_val=8, n_test=8, seed=3):
     return df
 
 
-def test_tune_sequence_models_returns_config_per_target():
+def test_tune_sequence_models_optimizes_lstm_x_and_lstm_xy_independently():
     df = _make_tuning_fixture()
     tiny_grid = {
         "window_size": [3],
@@ -297,10 +297,12 @@ def test_tune_sequence_models_returns_config_per_target():
         grid=tiny_grid, max_epochs=3, patience=1,
     )
 
-    assert set(best.keys()) == {"y"}
-    entry = best["y"]
-    for key in ["config", "best_epoch", "val_r2", "val_rmse", "val_mae"]:
-        assert key in entry
+    assert set(best.keys()) == {("LSTM-X", "y"), ("LSTM-X+y", "y")}
+    assert best[("LSTM-X", "y")]["config"]["include_past_target"] is False
+    assert best[("LSTM-X+y", "y")]["config"]["include_past_target"] is True
+    for entry in best.values():
+        for key in ["config", "best_epoch", "batch_size", "lr", "val_r2", "val_rmse", "val_mae"]:
+            assert key in entry
 
 
 def test_tune_sequence_models_never_uses_test_target():
@@ -318,8 +320,8 @@ def test_tune_sequence_models_never_uses_test_target():
         grid=tiny_grid, max_epochs=3, patience=1,
     )
 
-    assert "y" in best
-    assert not np.isnan(best["y"]["val_r2"])
+    assert ("LSTM-X", "y") in best
+    assert not np.isnan(best[("LSTM-X", "y")]["val_r2"])
 
 
 def test_final_stage_scalers_unaffected_by_test_row_mutation():
@@ -463,7 +465,7 @@ def test_tune_sequence_models_metrics_in_original_target_scale():
         grid=tiny_grid, max_epochs=100, patience=20, batch_size=8,
     )
 
-    entry = best["y"]
+    entry = best[("LSTM-X", "y")]
     # target scaling + mini-batch가 제대로 적용됐다면 val_rmse가 target 변동폭(표준편차
     # 몇 단위) 근처여야 한다. inverse_transform을 빼먹었거나 scaled 공간에서 true y와
     # 비교하면(=이번에 고치는 버그 그 자체) val_rmse가 ~85 가까운 값이 되고 val_r2가
@@ -516,7 +518,7 @@ def test_evaluate_final_sequence_model_metrics_in_original_target_scale():
     assert metrics["test_r2"] > -5.0
 
 
-def test_tune_then_evaluate_final_handoff_uses_consistent_batch_size():
+def test_tune_then_evaluate_final_handoff_uses_consistent_batch_size_and_lr():
     df = _make_tuning_fixture(n_train=24, n_val=10, n_test=10)
     tiny_grid = {
         "window_size": [3],
@@ -527,14 +529,15 @@ def test_tune_then_evaluate_final_handoff_uses_consistent_batch_size():
 
     best = tune_sequence_models(
         df, feature_columns=["f1", "f2"], target_columns=["y"],
-        grid=tiny_grid, max_epochs=5, patience=5, batch_size=8,
+        grid=tiny_grid, max_epochs=5, patience=5, batch_size=8, lr=5e-4,
     )
-    entry = best["y"]
+    entry = best[("LSTM-X", "y")]
     assert entry["batch_size"] == 8
+    assert entry["lr"] == 5e-4
 
     metrics = evaluate_final_sequence_model(
         df, "y", entry["config"], entry["best_epoch"],
-        feature_columns=["f1", "f2"], batch_size=entry["batch_size"],
+        feature_columns=["f1", "f2"], batch_size=entry["batch_size"], lr=entry["lr"],
     )
 
     for value in metrics.values():
