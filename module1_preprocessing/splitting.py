@@ -1,21 +1,38 @@
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 
-def temporal_train_val_test_split(
-    df: pd.DataFrame, train_frac: float = 0.7, val_frac: float = 0.15
+def stratified_train_val_test_split(
+    df: pd.DataFrame,
+    train_frac: float = 0.7,
+    val_frac: float = 0.15,
+    stratify_column: str = "원료등급",
+    random_state: int = 42,
 ) -> tuple[pd.Index, pd.Index, pd.Index]:
-    """배치ID의 숫자 순번을 시간 순서의 근사값으로 사용해 Train/Validation/Test로 분할한다.
-    무작위로 섞지 않고 순서대로 고정 분할해 미래 배치 정보가 과거 배치 학습에 포함되지 않도록 한다.
     """
-    
+    stratify_column의 클래스 비율을 유지하며 무작위로 Train/Validation/Test로 분할
+    """
+
     if train_frac <= 0 or val_frac <= 0 or train_frac + val_frac >= 1:
         raise ValueError("train_frac과 val_frac은 양수이며 합이 1보다 작아야 합니다.")
 
-    batch_seq = df["배치ID"].str.extract(r"(\d+)$")[0].astype(int)
-    ordered_index = batch_seq.sort_values().index
+    test_frac = 1 - train_frac - val_frac
+    test_count = round(len(df) * test_frac)
+    val_count = round(len(df) * val_frac)
+    if min(test_count, val_count, len(df) - test_count - val_count) < 1:
+        raise ValueError("분할 비율과 표본 수로 각 세트에 최소 1개 행을 배정할 수 없습니다.")
 
-    n = len(ordered_index)
-    train_end = int(n * train_frac)
-    val_end = int(n * (train_frac + val_frac))
+    development_i, test_i = train_test_split(
+        df.index,
+        test_size=test_count,
+        stratify=df[stratify_column],
+        random_state=random_state,
+    )
+    train_i, val_i = train_test_split(
+        development_i,
+        test_size=val_count,
+        stratify=df.loc[development_i, stratify_column],
+        random_state=random_state,
+    )
 
-    return ordered_index[:train_end], ordered_index[train_end:val_end], ordered_index[val_end:]
+    return pd.Index(train_i), pd.Index(val_i), pd.Index(test_i)
