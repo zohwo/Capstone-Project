@@ -1,13 +1,14 @@
 import re
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
 
-from module1_preprocessing.config import RAW_SHEET_NAME
+from module1_preprocessing.config import BASE_FEATURES, TARGET_COLUMNS, RAW_SHEET_NAME
 
 
 def load_raw(path: str | Path, sheet_name: str = RAW_SHEET_NAME) -> pd.DataFrame:
-    """엑셀(xlsx/xls)의 지정된 시트 or CSV 파일을 읽어 DataFrame으로 반환한다."""
+    """엑셀(xlsx/xls)의 지정된 시트 or CSV 파일을 읽어 DataFrame으로 반환"""
 
     path = Path(path)
     ext = path.suffix.lower()
@@ -31,10 +32,12 @@ _DATE_PATTERNS = [
 
 
 def _parse_one_date(value) -> pd.Timestamp:
-    """결측값 또는 지원하지 않는 날짜 형식은 NaT로 처리하고, 지원되는 날짜 형식은 Timestamp로 변환한다."""
+    """결측값 또는 지원하지 않는 날짜 형식은 NaT로 처리하고, 지원되는 날짜 형식은 Timestamp로 변환"""
 
     if pd.isna(value):
         return pd.NaT
+    if isinstance(value, (date, datetime, pd.Timestamp)):
+        return pd.Timestamp(value)
     text = str(value).strip()
     for pattern, fmt in _DATE_PATTERNS:
         if pattern.match(text):
@@ -46,17 +49,34 @@ def _parse_one_date(value) -> pd.Timestamp:
 
 
 def clean_schema(df: pd.DataFrame) -> pd.DataFrame:
-    """날짜 형식 통일, 원료등급 표기 정규화, 중복 배치ID 플래그를 적용한다.
+    """필수 입력을 확인하고 날짜·등급·숫자 형식을 통일
 
-    - 분석일자: 여러 날짜 표기를 실제 데이터 규칙에 맞게 통일해 파싱한다.
-      점(.) 표기 날짜는 일-월-년 형식이므로 잘못 해석되지 않도록 형식을 직접 지정한다.
-    - 원료등급: 앞뒤 공백, 영문 대소문자, '급' 표기를 통일한다.
-    - 중복 배치 플래그: 동일한 배치ID가 2개 이상 존재하면 True로 표시한다.
+    - 분석일자: 여러 날짜 표기를 실제 데이터 규칙에 맞게 통일해 파싱
+      점(.) 표기 날짜는 일-월-년 형식이므로 잘못 해석되지 않도록 형식을 직접 지정
+    - 원료등급: 앞뒤 공백, 영문 대소문자, '급' 표기를 통일
+    - 중복 배치 플래그: 동일한 배치ID가 2개 이상 존재하면 True로 표시
     """
 
     df = df.copy()
 
-    df["분석일자"] = df["분석일자"].apply(_parse_one_date)
+    df.columns = [col.strip() if isinstance(col, str) else col for col in df.columns]
+    duplicate_columns = df.columns[df.columns.duplicated()].tolist()
+    if duplicate_columns:
+        raise ValueError(f"공백 정리 후 중복된 컬럼명이 있습니다: {duplicate_columns}")
+    required = ["배치ID", "분석일자", "원료등급"] + BASE_FEATURES + TARGET_COLUMNS
+    missing_columns = [col for col in required if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"필수 컬럼이 누락되었습니다: {missing_columns}")
+
+    df["배치ID"] = df["배치ID"].astype("string").str.strip()
+    missing_id = df["배치ID"].isna() | df["배치ID"].eq("")
+    if missing_id.any():
+        raise ValueError(f"배치ID가 비어 있습니다. 행 인덱스: {df.index[missing_id].tolist()}")
+
+    dates = df["분석일자"]
+    date_present = dates.notna() & dates.astype("string").str.strip().ne("").fillna(False)
+    df["분석일자"] = dates.apply(_parse_one_date)
+    df["analysis_date_parse_failed"] = date_present & df["분석일자"].isna()
 
     df["원료등급"] = (
         df["원료등급"]
@@ -64,7 +84,26 @@ def clean_schema(df: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .str.upper()
         .str.replace("급", "", regex=False)
-)
+        .str.strip()
+    )
+    invalid_grade = ~df["원료등급"].isin(["A", "B", "C"])
+    if invalid_grade.any():
+        raise ValueError(
+            "원료등급은 A/B/C 중 하나여야 합니다. "
+            f"행 인덱스: {df.index[invalid_grade].tolist()}, "
+            f"값: {df.loc[invalid_grade, '원료등급'].tolist()}"
+        )
+
+    for col in BASE_FEATURES + TARGET_COLUMNS:
+        values = df[col].replace(r"^\s*$", pd.NA, regex=True)
+        numeric = pd.to_numeric(values, errors="coerce")
+        invalid = values.notna() & numeric.isna()
+        if invalid.any():
+            raise ValueError(
+                f"숫자로 변환할 수 없는 입력입니다. 컬럼: {col}, "
+                f"행 인덱스: {df.index[invalid].tolist()}, 값: {values[invalid].tolist()}"
+            )
+        df[col] = numeric
 
     df["is_duplicate_batch"] = df.duplicated(subset="배치ID", keep=False)
 
@@ -72,12 +111,12 @@ def clean_schema(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def resolve_duplicate_batches(df: pd.DataFrame) -> pd.DataFrame:
-    """중복 배치ID를 확인해 완전 중복은 제거하고, 충돌 중복은 표시한다.
+    """중복 배치ID를 확인해 완전 중복은 제거하고, 충돌 중복은 표시
 
-    - 완전 중복: 배치ID와 다른 컬럼 값까지 모두 같으면 첫 행만 남기고 제거한다.
+    - 완전 중복: 배치ID와 다른 컬럼 값까지 모두 같으면 첫 행만 남기고 제거
     - 충돌 중복: 배치ID는 같지만 다른 컬럼 값이 다르면 삭제하지 않고
-      `is_conflicting_duplicate=True`로 표시한다.
-    - 중복 판단: `clean_schema`에서 생성한 `is_duplicate_batch` 플래그를 기준으로 처리한다.
+      `is_conflicting_duplicate=True`로 표시
+    - 중복 판단: `clean_schema`에서 생성한 `is_duplicate_batch` 플래그를 기준으로 처리
     """
 
     df = df.copy()
