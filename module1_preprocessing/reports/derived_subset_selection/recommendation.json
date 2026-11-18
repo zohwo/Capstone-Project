@@ -1,0 +1,103 @@
+{
+  "development_rows": 357,
+  "test_used": false,
+  "seeds": [
+    42,
+    17,
+    83
+  ],
+  "folds": 5,
+  "model": "LightGBM defaults, random_state=42",
+  "data_sha256": "6bca2f3ec584c1444a86a5e9ffde8f44dd8babfe0351849bb1cb467deca34596",
+  "candidates": [
+    "acid_to_ore_ratio",
+    "leach_intensity",
+    "total_impurity_pct",
+    "feed_impurity_g_per_l",
+    "acid_per_target_L_kg",
+    "acid_time"
+  ],
+  "current_four": [
+    "leach_intensity",
+    "feed_impurity_g_per_l",
+    "acid_per_target_L_kg",
+    "acid_time"
+  ],
+  "combinations_per_grade": 64,
+  "grade_conditions": [
+    false,
+    true
+  ],
+  "practical_tolerance_pct_point": 0.02,
+  "recommendations": [
+    {
+      "target": "Co_회수율_pct",
+      "grade": false,
+      "best_features": [
+        "leach_intensity",
+        "total_impurity_pct",
+        "feed_impurity_g_per_l"
+      ],
+      "best_mae": 2.254578657611374,
+      "simpler_features": [
+        "leach_intensity",
+        "total_impurity_pct",
+        "feed_impurity_g_per_l"
+      ],
+      "simpler_mae": 2.254578657611374
+    },
+    {
+      "target": "Co_회수율_pct",
+      "grade": true,
+      "best_features": [
+        "leach_intensity",
+        "total_impurity_pct",
+        "feed_impurity_g_per_l"
+      ],
+      "best_mae": 2.2647033488000496,
+      "simpler_features": [
+        "leach_intensity",
+        "total_impurity_pct",
+        "feed_impurity_g_per_l"
+      ],
+      "simpler_mae": 2.2647033488000496
+    },
+    {
+      "target": "Ni_회수율_pct",
+      "grade": false,
+      "best_features": [
+        "leach_intensity",
+        "total_impurity_pct",
+        "feed_impurity_g_per_l",
+        "acid_per_target_L_kg",
+        "acid_time"
+      ],
+      "best_mae": 1.8858602607026966,
+      "simpler_features": [
+        "feed_impurity_g_per_l",
+        "acid_time"
+      ],
+      "simpler_mae": 1.9021158355967624
+    },
+    {
+      "target": "Ni_회수율_pct",
+      "grade": true,
+      "best_features": [
+        "acid_to_ore_ratio",
+        "feed_impurity_g_per_l",
+        "acid_per_target_L_kg"
+      ],
+      "best_mae": 1.8907571162715655,
+      "simpler_features": [
+        "feed_impurity_g_per_l",
+        "acid_time"
+      ],
+      "simpler_mae": 1.9050605573997401
+    }
+  ],
+  "limitations": [
+    "반복 CV 점수는 선택용이며 독립적인 일반화 성능이 아님",
+    "fold와 반복 시드는 독립 표본이 아니므로 표준편차를 유의성 근거로 사용하지 않음",
+    "허용 차이는 실용적인 참고 기준이며 통계적 동등성 기준이 아님"
+  ]
+}
