@@ -1,0 +1,61 @@
+{
+  "primary_metric": "rmse",
+  "cv": {
+    "n_splits": 5,
+    "shuffle": true,
+    "random_state": 42,
+    "stratify_column": "원료등급"
+  },
+  "selected": {
+    "Ni_회수율_pct": [
+      "SVR",
+      "Ni_회수율_pct"
+    ],
+    "Co_회수율_pct": [
+      "SVR",
+      "Co_회수율_pct"
+    ]
+  },
+  "source_sha256": "6bca2f3ec584c1444a86a5e9ffde8f44dd8babfe0351849bb1cb467deca34596",
+  "features": {
+    "Ni_회수율_pct": [
+      "Ni_함량_pct",
+      "Co_함량_pct",
+      "Li_함량_pct",
+      "Mn_함량_pct",
+      "Cu_불순물_pct",
+      "Fe_불순물_pct",
+      "Al_불순물_pct",
+      "침출온도_C",
+      "침출시간_hr",
+      "원료투입량_kg",
+      "황산투입량_L",
+      "acid_to_ore_ratio",
+      "leach_intensity",
+      "total_impurity_pct",
+      "feed_impurity_g_per_l"
+    ],
+    "Co_회수율_pct": [
+      "Ni_함량_pct",
+      "Co_함량_pct",
+      "Li_함량_pct",
+      "Mn_함량_pct",
+      "Cu_불순물_pct",
+      "Fe_불순물_pct",
+      "Al_불순물_pct",
+      "침출온도_C",
+      "침출시간_hr",
+      "원료투입량_kg",
+      "황산투입량_L",
+      "acid_to_ore_ratio",
+      "leach_intensity",
+      "total_impurity_pct",
+      "feed_impurity_g_per_l"
+    ]
+  },
+  "selection_reason": "동일한 CV 조건에서 평균 검증 RMSE가 최소인 모델을 타깃별 선정; MAE와 R²는 보조 지표",
+  "cv_role": "CV RMSE는 모델, 하이퍼파라미터 선택에 사용한 점수이므로 독립 평가 점수로 해석하지 않는다",
+  "test_role": "선정 완료 후 평가; Test 결과를 모델, 피처 재선택에 사용하지 않음",
+  "test_history_caveat": "현재 공식 실행에서 Test를 선택에 쓰는 경로는 발견되지 않았고, 과거 피처 선택에 현재 Test 배치가 쓰였는지는 미확인",
+  "uncertainty": "CV 표준편차는 분할별 성능 변동이며 개별 배치 예측구간이 아님"
+}
