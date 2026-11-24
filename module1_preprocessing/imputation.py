@@ -26,9 +26,8 @@ def replace_outliers_with_nan(
     """정상범위와 문헌 기반 예외 밖의 값을 NaN으로 변환
 
     정상범위 밖에서 예외로 보존된 값만 '{컬럼}_dict_range_flag'로 표시
-    '{컬럼}_outlier_reason'에 original_missing / not_replaced /
-    outside_accepted_range / non_finite를 기록하고, 결측으로 바꾼 값은
-    '{컬럼}_outlier_original_value'에 보존한다. 이력은 모델 피처가 아니다.
+    '{컬럼}_outlier_reason'에 original_missing / not_replaced / outside_accepted_range / non_finite를 기록하고,
+    결측으로 바꾼 값은 '{컬럼}_outlier_original_value'에 보존
     """
     df = df.copy()
     for col, bounds in ranges.items():
@@ -38,7 +37,7 @@ def replace_outliers_with_nan(
         rejected = df[col].notna() & ~accepted
         reason_col = f"{col}_outlier_reason"
         original_col = f"{col}_outlier_original_value"
-        # 재호출 시 이미 기록된 이력을 원래 결측으로 덮어쓰지 않는다.
+        # 재호출 시 이미 기록된 이력을 원래 결측으로 덮어쓰지 않음
         if reason_col not in df:
             df[reason_col] = pd.Series("not_replaced", index=df.index, dtype="string")
             df.loc[df[col].isna(), reason_col] = "original_missing"

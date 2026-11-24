@@ -22,11 +22,11 @@ from module1_preprocessing.validation import check_ranges, format_range_violatio
 
 
 def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
-    """원본 데이터를 정제·분할·대치·특성공학·검증한 뒤 CSV로 저장한다.
+    """원본 데이터를 정제·분할·대치·특성공학·검증한 뒤 CSV로 저장
 
-    원료등급 구성비를 보존하는 stratified 분할로 Train/Validation/Test를 나누고,
-    Train 기준 대치 결과는 품질 확인용으로 저장한다. 모델링용 대치 전 데이터와
-    개발 데이터 비교 후 승인된 공통 피처 구성을 별도 저장하며 Test는 평가하지 않음
+    원료등급 구성비를 보존하는 stratified 분할로 Train/Validation/Test를 나누고, 
+    Train 기준 대치 결과는 품질 확인용으로 저장 모델링용 대치 전 데이터와 개발 데이터 비교 후 승인된 공통 피처 구성을 별도 저장하며
+    Test는 평가하지 않음
     """
 
     df = load_raw(input_path)
@@ -49,7 +49,7 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
 
     df = replace_outliers_with_nan(df)
 
-    # 동일 시료·동일 질량 기준 wt%라는 전제. 대치 전 판정도 보존한다.
+    # 동일 시료·동일 질량 기준 wt%라는 전제. 대치 전 판정도 보존함
     composition_before = check_composition_sum(df).add_prefix("pre_impute_")
     df = df.join(composition_before)
 
@@ -70,15 +70,12 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
 
     df = impute_missing_from_reference(train_df, df)
 
-    # acid_to_ore_ratio/feed_impurity_g_per_l_acid_solution(실제 모델 피처)의 분모가
-    # 0 이하면 engineer_features에서 NaN이 되어 아래 결측 검사를 통과 못 한다 —
-    # 애매한 "어딘가 결측 있음" 에러 대신 원인을 바로 알 수 있도록 여기서 먼저 확인한다.
     for col in ["원료투입량_kg", "황산투입량_L"]:
         bad_batches = df.loc[df[col] <= 0, "배치ID"].tolist()
         if bad_batches:
             raise ValueError(
                 f"{col}이(가) 0 이하인 배치가 있어 acid_to_ore_ratio/"
-                f"feed_impurity_g_per_l_acid_solution을 계산할 수 없습니다: {bad_batches}"
+                f"feed_impurity_g_per_l을 계산할 수 없습니다: {bad_batches}"
             )
 
     df = engineer_features(df)
@@ -90,8 +87,6 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
 
     base_features = BASE_FEATURES
 
-    # 모델이 실제로 쓰는 컬럼(FEATURE_COLUMNS)+타깃만 결측 0건을 요구한다 — Fe_Ni_ratio
-    # 등 해석용 파생변수는 모델에 안 쓰이므로, 그것만 결측이어도 파이프라인을 막지 않는다.
     feature_columns = base_features + DERIVED_FEATURES
     remaining_missing = check_missing(df, columns=feature_columns + TARGET_COLUMNS)
 
@@ -101,7 +96,6 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
     validate_model_features(df, feature_columns)
     print("정제 후 남은 결측치: 없음")
 
-    # 대치 후에도 정상범위 또는 문헌 기반 보존 예외를 충족해야 한다.
     violations = check_ranges(df, reference_exception_ranges=REFERENCE_EXCEPTION_RANGES)
     if violations:
         raise ValueError(f"정상범위와 문헌 기반 보존 예외를 벗어난 값이 남아 있습니다 - {format_range_violations(df, violations)}")
@@ -114,7 +108,7 @@ def run(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
 
 
 def evaluate_feature_selection(pre_impute_df: pd.DataFrame) -> tuple[dict, dict]:
-    """고정 split에서 네 조합을 한 번 비교하고 선택 정보·평가 결과 반환함"""
+    """고정 split에서 네 조합을 한 번 비교하고 선택 정보·평가 결과 반환"""
     validate_targets(pre_impute_df, TARGET_COLUMNS)
     if set(pre_impute_df["split"].unique()) != {"train", "validation", "test"}:
         raise ValueError("고정 train/validation/test split이 필요합니다.")
@@ -128,13 +122,9 @@ def evaluate_feature_selection(pre_impute_df: pd.DataFrame) -> tuple[dict, dict]
         "all_features": base_features + ["원료등급"] + DERIVED_FEATURES,
     }
 
-    # Train+Validation을 풀로 묶어 Stratified 5-Fold CV로 피처 조합을 비교한다 —
-    # 단일 Validation 분할(약 63행)은 운에 따라 결과가 흔들릴 수 있어, CV 평균으로
-    # 선택용 성능을 비교한다. 독립적인 일반화 평가는 모듈 2의 Test 단계에서 한다.
     cv_pool = pd.concat([pre_impute_df.loc[pre_impute_df["split"] == name]
                          for name in ("train", "validation")], ignore_index=True)
 
-    # 피처 선택 비교 모델은 LightGBM으로 고정한다. Test로 재선택하지 않는다.
     model_factory = lambda random_state: LGBMRegressor(random_state=random_state, verbose=-1, n_jobs=1)
 
     ablation_results = run_cv_ablation_test(
@@ -185,7 +175,7 @@ def evaluate_feature_selection(pre_impute_df: pd.DataFrame) -> tuple[dict, dict]
 
 
 def save_feature_selection(pre_impute_df: pd.DataFrame, selection: dict, output_path: str | Path) -> dict:
-    """평가한 데이터와 동일한 입력인지 확인하고 재학습 없이 산출물 저장함"""
+    """평가한 데이터와 동일한 입력인지 확인하고 재학습 없이 산출물 저장"""
     csv_text = pre_impute_df.to_csv(index=False)
     digest = hashlib.sha256(csv_text.encode("utf-8")).hexdigest()
     if selection.get("data_sha256") != digest:
@@ -202,7 +192,7 @@ def save_feature_selection(pre_impute_df: pd.DataFrame, selection: dict, output_
 
 
 def select_and_save_features(pre_impute_df: pd.DataFrame, output_path: str | Path) -> dict:
-    """고정 split에서 네 조합을 비교하고 승인된 공통 4종 저장함"""
+    """고정 split에서 네 조합을 비교하고 승인된 공통 4종 저장"""
     selection, _ = evaluate_feature_selection(pre_impute_df)
     return save_feature_selection(pre_impute_df, selection, output_path)
 

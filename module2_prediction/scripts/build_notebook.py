@@ -112,7 +112,7 @@ for ax, target in zip(axes, TARGET_COLUMNS):
     ax.bar(x + .2, table.val_rmse, .4, yerr=table.val_rmse_std, label='검증', capsize=3)
     ax.set_xticks(x, table.index, rotation=35)
     ax.set(title=target, ylabel='RMSE (%p)')
-    ax.legend()
+    ax.legend(loc='upper right', ncol=2)
 fig.tight_layout()
 fig.savefig(FIGURES_DIR / 'train_validation_rmse.png')
 plt.show()
@@ -133,6 +133,19 @@ cells.append(nbf.v4.new_code_cell(
     "    final_results[target] = dict(model=model_name, params=params, primary_metric='rmse', features=features_by_target[target], **tuned[(model_name, target)]['metrics'], **result[target])\n\n"
     "(MODEL_DIR / 'results.json').write_text(json.dumps(final_results, ensure_ascii=False, indent=2), encoding='utf-8')\n"
     "pd.DataFrame(final_results).T"
+))
+
+cells.append(nbf.v4.new_markdown_cell("### 선정 결과 해석\n\n아래는 §4에서 고른 모델의 Test 성능과, 같은 타깃에서 차순위였던 모델과의 CV 검증 RMSE 차이임."))
+cells.append(nbf.v4.new_code_cell(
+    "for target, (model_name, _) in best_per_target.items():\n"
+    "    r = final_results[target]\n"
+    "    ranked = sorted((k for k in tuned if k[1] == target), key=lambda k: tuned[k]['metrics']['val_rmse'])\n"
+    "    runner_up = ranked[1] if len(ranked) > 1 else None\n"
+    "    print(f\"{target}: {model_name} 선정, params={r['params']}\")\n"
+    "    print(f\"  Test RMSE={r['test_rmse']:.3f}%p, MAE={r['test_mae']:.3f}%p, R2={r['test_r2']:.3f}\")\n"
+    "    if runner_up is not None:\n"
+    "        gap = tuned[runner_up]['metrics']['val_rmse'] - tuned[(model_name, target)]['metrics']['val_rmse']\n"
+    "        print(f\"  차순위 {runner_up[0]} 대비 검증 RMSE {gap:.3f}%p 더 낮음(선정 기준)\")"
 ))
 
 cells.append(nbf.v4.new_markdown_cell("""## 6. Test 성능 심화 분석 (등급별 오차, 단순 기준선 비교)
@@ -285,6 +298,19 @@ domain_summary.to_csv(MODEL_DIR / 'shap_top_factors.csv', index=False)
 display(domain_summary.round(4))
 """))
 
+cells.append(nbf.v4.new_markdown_cell("### SHAP 상위 변수 해석"))
+cells.append(nbf.v4.new_code_cell(
+    "for target in TARGET_COLUMNS:\n"
+    "    top3 = importance_table[target].nlargest(3)\n"
+    "    print(f'{target} SHAP 상위 3: ' + ', '.join(f'{f}(절대평균 {v:.3f}%p)' for f, v in top3.items()))\n"
+    "    for feature in top3.index:\n"
+    "        row = domain_summary[(domain_summary.target == target) & (domain_summary.feature == feature)].iloc[0]\n"
+    "        comparison = '높음' if row['high_minus_low_shap'] > 0 else '낮음'\n"
+    "        print(f\"  {feature}: 하위 25% 집단 평균 SHAP {row['low_group_mean_shap']:.3f}, \"\n"
+    "              f\"상위 25% 집단 평균 SHAP {row['high_group_mean_shap']:.3f} \"\n"
+    "              f\"(상위 25% 집단의 평균 SHAP이 하위 25% 집단보다 {comparison} — 단조성을 증명하지 않음)\")"
+))
+
 cells.append(nbf.v4.new_markdown_cell(
     "## 8. 공정조건별 변화 분석\n\n"
     "- 침출온도_C, 침출시간_hr을 각각 바꿔가며 Ni_회수율, Co_회수율 예측값 변화 확인\n"
@@ -295,36 +321,29 @@ cells.append(nbf.v4.new_markdown_cell(
     "  모순되는 입력이 되므로 여기서는 쓰지 않음"
 ))
 
-cells.append(nbf.v4.new_code_cell(
-    "target = TARGET_COLUMNS[0]\n"
-    "model = interpretation_models[target]\n"
-    "base_row = train_val_df.iloc[0]\n\n"
-    "pd_result = predict_process_scenario(model, base_row, feature='침출온도_C', values=list(range(40, 96, 5)), feature_columns=features_by_target[target])\n"
-    "pd_result.plot(x='침출온도_C', y='prediction', marker='o', title=f'{target} vs 침출온도_C')"
-))
+cells.append(nbf.v4.new_code_cell(r"""fig, axes = plt.subplots(2, 2, figsize=(11, 8), constrained_layout=True)
+scenarios = [('침출온도_C', list(range(40, 96, 5))), ('침출시간_hr', list(range(1, 9)))]
+scenario_results = {}
+for row, target in enumerate(TARGET_COLUMNS):
+    model = interpretation_models[target]
+    base_row = train_val_df.iloc[0]
+    for col, (feature, values) in enumerate(scenarios):
+        pd_result = predict_process_scenario(model, base_row, feature=feature, values=values, feature_columns=features_by_target[target])
+        scenario_results[(target, feature)] = pd_result
+        ax = axes[row, col]
+        pd_result.plot(x=feature, y='prediction', marker='o', ax=ax, legend=False, title=f'{target} vs {feature}')
+        ax.set_ylabel('예측 회수율 (%)')
+fig.savefig(FIGURES_DIR / 'process_condition_sensitivity.png')
+plt.show()
+plt.close(fig)"""))
 
+cells.append(nbf.v4.new_markdown_cell("### 공정조건별 예측 경향 해석"))
 cells.append(nbf.v4.new_code_cell(
-    "target = TARGET_COLUMNS[0]\n"
-    "model = interpretation_models[target]\n"
-    "base_row = train_val_df.iloc[0]\n\n"
-    "pd_result = predict_process_scenario(model, base_row, feature='침출시간_hr', values=list(range(1, 9)), feature_columns=features_by_target[target])\n"
-    "pd_result.plot(x='침출시간_hr', y='prediction', marker='o', title=f'{target} vs 침출시간_hr')"
-))
-
-cells.append(nbf.v4.new_code_cell(
-    "target = TARGET_COLUMNS[1]\n"
-    "model = interpretation_models[target]\n"
-    "base_row = train_val_df.iloc[0]\n\n"
-    "pd_result = predict_process_scenario(model, base_row, feature='침출온도_C', values=list(range(40, 96, 5)), feature_columns=features_by_target[target])\n"
-    "pd_result.plot(x='침출온도_C', y='prediction', marker='o', title=f'{target} vs 침출온도_C')"
-))
-
-cells.append(nbf.v4.new_code_cell(
-    "target = TARGET_COLUMNS[1]\n"
-    "model = interpretation_models[target]\n"
-    "base_row = train_val_df.iloc[0]\n\n"
-    "pd_result = predict_process_scenario(model, base_row, feature='침출시간_hr', values=list(range(1, 9)), feature_columns=features_by_target[target])\n"
-    "pd_result.plot(x='침출시간_hr', y='prediction', marker='o', title=f'{target} vs 침출시간_hr')"
+    "for (target, feature), pd_result in scenario_results.items():\n"
+    "    pred = pd_result['prediction']\n"
+    "    monotonic = '증가' if pred.is_monotonic_increasing else ('감소' if pred.is_monotonic_decreasing else '비단조')\n"
+    "    print(f'{target} vs {feature}: {pred.iloc[0]:.2f}% -> {pred.iloc[-1]:.2f}% '\n"
+    "          f'(범위 {pred.max()-pred.min():.2f}%p, {monotonic})')"
 ))
 
 cells.append(nbf.v4.new_markdown_cell(

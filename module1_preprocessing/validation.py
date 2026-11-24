@@ -327,6 +327,9 @@ def plot_ablation_results(results: dict, output_dir: str | Path) -> Path:
 
     case_names = list(dict.fromkeys(case for case, _ in results.keys()))
     target_names = list(dict.fromkeys(target for _, target in results.keys()))
+    case_labels = {"base": "원변수", "base_plus_grade": "원변수+등급",
+                   "base_plus_derived": "원변수+파생", "all_features": "전체 변수"}
+    target_labels = {"Ni_회수율_pct": "Ni 회수율", "Co_회수율_pct": "Co 회수율"}
 
     fig, ax = plt.subplots(figsize=(max(6, len(case_names) * 1.8), 5))
     x = range(len(case_names))
@@ -343,23 +346,24 @@ def plot_ablation_results(results: dict, output_dir: str | Path) -> Path:
             for xi in x
         ]
 
-        ax.bar(
+        bars = ax.bar(
             offsets,
             values,
             width=width,
-            label=target
+            label=target_labels.get(target, target)
         )
+        ax.bar_label(bars, fmt="%.4f", padding=3, fontsize=8)
 
     ax.set_xticks(list(x))
-    ax.set_xticklabels(case_names, rotation=20, ha="right")
+    ax.set_xticklabels([case_labels.get(c, c) for c in case_names], rotation=0, ha="center")
     ax.set_ylabel("CV MAE (%p)")
-    ax.set_title("특징 조합별 CV MAE — 낮을수록 우수")
+    ax.set_title("특징 조합에 따른 Ni·Co 회수율 예측 오차 비교")
     ax.set_ylim(bottom=0)
-    ax.legend()
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), borderaxespad=0)
     fig.tight_layout()
 
     output_path = output_dir / "ablation_results.png"
-    fig.savefig(output_path)
+    fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
 
     return output_path

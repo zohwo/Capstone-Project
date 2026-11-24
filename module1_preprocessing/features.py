@@ -40,11 +40,9 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # 투입 황산 용액 1 L당 원료에 포함된 Cu·Fe·Al 질량(g/L)
     # ×10은 wt%를 g/kg으로 환산, 분자는 용해 전 원료 기준
-    df["feed_impurity_g_per_l_acid_solution"] = _safe_divide(
+    df["feed_impurity_g_per_l"] = _safe_divide(
         10 * df["total_impurity_pct"], df["acid_to_ore_ratio"]
     )
-
-    df["feed_impurity_g_per_l"] = df["feed_impurity_g_per_l_acid_solution"]
     target_mass_kg = df["원료투입량_kg"] * target_metals / 100
     df["acid_per_target_L_kg"] = _safe_divide(df["황산투입량_L"], target_mass_kg)
     df["acid_time"] = df["acid_to_ore_ratio"] * df["침출시간_hr"]

@@ -59,28 +59,6 @@ def test_engineer_features_computes_distinct_impurity_ratios():
     assert result["Al_Ni_ratio"].iloc[0] == pytest.approx(1.0 / 20.0)
 
 
-def test_engineer_features_computes_feed_impurity_g_per_l_acid_solution():
-    df = pd.DataFrame({
-        "황산투입량_L": [700.0],
-        "원료투입량_kg": [100.0],
-        "침출온도_C": [60.0],
-        "침출시간_hr": [4.0],
-        "Cu_불순물_pct": [1.0],
-        "Fe_불순물_pct": [1.0],
-        "Al_불순물_pct": [1.0],
-        "Ni_함량_pct": [20.0],
-        "Co_함량_pct": [5.0],
-        "Li_함량_pct": [4.0],
-        "Mn_함량_pct": [10.0],
-        "분석일자": [pd.Timestamp("2025-03-15")],
-    })
-
-    result = engineer_features(df)
-
-    # total_impurity_pct=3.0, acid_to_ore_ratio=7.0 -> 10*3.0/7.0 (wt%->g/kg 환산 위한 x10)
-    assert result["feed_impurity_g_per_l_acid_solution"].iloc[0] == pytest.approx(10.0 * 3.0 / 7.0)
-
-
 def test_engineer_features_zero_denominator_returns_nan_not_inf():
     df = pd.DataFrame({
         "황산투입량_L": [700.0],
@@ -124,7 +102,7 @@ def test_engineer_features_negative_ore_mass_returns_nan_not_negative_ratio():
     result = engineer_features(df)
 
     assert np.isnan(result["acid_to_ore_ratio"].iloc[0])
-    assert np.isnan(result["feed_impurity_g_per_l_acid_solution"].iloc[0])
+    assert np.isnan(result["feed_impurity_g_per_l"].iloc[0])
 
 
 def test_engineer_features_does_not_mutate_input():
@@ -159,4 +137,4 @@ def test_new_acid_features_reject_zero_target_mass():
     result = engineer_features(frame)
     assert result["acid_per_target_L_kg"].isna().all()
     assert np.isnan(result["acid_time"].iloc[1])
-    assert result["feed_impurity_g_per_l"].equals(result["feed_impurity_g_per_l_acid_solution"])
+    assert np.isnan(result["feed_impurity_g_per_l"].iloc[1])

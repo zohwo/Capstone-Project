@@ -1,4 +1,4 @@
-"""모듈 1·2에서 공유하는 학습 데이터 기준 전처리."""
+"""모듈 1·2에서 사용하는 학습 데이터 기준 전처리와 입력 검증을 수행"""
 import numpy as np
 import pandas as pd
 
@@ -12,11 +12,7 @@ RAW_INPUT_COLUMNS = COMPOSITION_COLUMNS + PROCESS_COLUMNS + [
 
 
 def prepare_split(reference_df: pd.DataFrame, target_df: pd.DataFrame) -> pd.DataFrame:
-    """reference_df만으로 대치 기준을 계산하여 target_df에 적용한 뒤 파생변수 생성
-
-    CV에서는 reference_df가 반드시 해당 fold의 학습 부분이어야 함
-    분석일자는 탐색용이며 모델 입력에는 포함하지 않음
-    """
+    """참조 데이터 기준으로 대상 데이터의 결측값을 대치하고 분석일자 변환과 파생변수 생성을 수행"""
     for name, frame in (("reference", reference_df), ("target", target_df)):
         missing = set(RAW_INPUT_COLUMNS) - set(frame.columns)
         if missing:
@@ -27,7 +23,7 @@ def prepare_split(reference_df: pd.DataFrame, target_df: pd.DataFrame) -> pd.Dat
 
 
 def validate_model_features(frame: pd.DataFrame, columns: list[str]) -> None:
-    """전처리 후 모델 입력에 결측·무한대가 남으면 명시적으로 중단"""
+    """모델 입력 컬럼의 존재 여부와 결측·무한대 값을 검사"""
     missing = set(columns) - set(frame.columns)
     if missing:
         raise ValueError(f"모델 입력 컬럼이 없습니다: {sorted(missing)}")
@@ -36,7 +32,7 @@ def validate_model_features(frame: pd.DataFrame, columns: list[str]) -> None:
 
 
 def validate_targets(frame: pd.DataFrame, columns: list[str]) -> None:
-    """관측 정답은 대치하지 않음, 회수율은 유한한 0~100%이어야 함"""
+    """타깃 컬럼의 존재 여부와 결측·무한대·0~100% 범위 위반을 검사"""
     for col in columns:
         if col not in frame:
             raise ValueError(f"목표변수 '{col}' 컬럼이 없습니다.")
