@@ -1,0 +1,80 @@
+{
+  "Ni_회수율_pct": {
+    "model": "SVR",
+    "params": {
+      "C": 10,
+      "gamma": 0.01,
+      "epsilon": 0.1
+    },
+    "primary_metric": "rmse",
+    "features": [
+      "Ni_함량_pct",
+      "Co_함량_pct",
+      "Li_함량_pct",
+      "Mn_함량_pct",
+      "Cu_불순물_pct",
+      "Fe_불순물_pct",
+      "Al_불순물_pct",
+      "침출온도_C",
+      "침출시간_hr",
+      "원료투입량_kg",
+      "황산투입량_L",
+      "acid_to_ore_ratio",
+      "leach_intensity",
+      "total_impurity_pct",
+      "feed_impurity_g_per_l"
+    ],
+    "val_r2": 0.8606938760481299,
+    "val_mse": 4.792906226764887,
+    "val_rmse": 2.1854412222409514,
+    "val_rmse_std": 0.1447104475101233,
+    "val_mae_std": 0.11425264304929877,
+    "val_mae": 1.704860229042231,
+    "train_rmse": 1.9833829437153068,
+    "train_rmse_std": 0.047917570643700565,
+    "rmse_gap": 0.20205827852564462,
+    "test_r2": 0.8603626209915676,
+    "test_mse": 5.22294650265628,
+    "test_rmse": 2.28537666537844,
+    "test_mae": 1.7380074020402578
+  },
+  "Co_회수율_pct": {
+    "model": "SVR",
+    "params": {
+      "C": 10,
+      "gamma": 0.01,
+      "epsilon": 0.1
+    },
+    "primary_metric": "rmse",
+    "features": [
+      "Ni_함량_pct",
+      "Co_함량_pct",
+      "Li_함량_pct",
+      "Mn_함량_pct",
+      "Cu_불순물_pct",
+      "Fe_불순물_pct",
+      "Al_불순물_pct",
+      "침출온도_C",
+      "침출시간_hr",
+      "원료투입량_kg",
+      "황산투입량_L",
+      "acid_to_ore_ratio",
+      "leach_intensity",
+      "total_impurity_pct",
+      "feed_impurity_g_per_l"
+    ],
+    "val_r2": 0.8617093781620001,
+    "val_mse": 6.6429286572402315,
+    "val_rmse": 2.5633567420796646,
+    "val_rmse_std": 0.3002725222089135,
+    "val_mae_std": 0.27290728985105306,
+    "val_mae": 1.9673779294574423,
+    "train_rmse": 2.392132305462929,
+    "train_rmse_std": 0.07550583322979755,
+    "rmse_gap": 0.1712244366167357,
+    "test_r2": 0.8700337082664372,
+    "test_mse": 5.41913279994269,
+    "test_rmse": 2.3279030907541425,
+    "test_mae": 1.8747434530734857
+  }
+}
