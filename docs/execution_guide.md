@@ -2,6 +2,8 @@
 
 프로젝트 개요·데이터 정책·방법론은 [README](../README.md) 참고. 이 문서는 실행 절차만 다룸.
 
+아래 터미널 명령은 모두 저장소 루트(`capstone/`)에서 실행함.
+
 ## 1. 환경 설치
 
 **Python 3.12.7 권장.** 다른 작업에 쓰는 conda 환경(예: PyTorch용)과 섞이면 패키지 버전 충돌로 저장된 모델(`.joblib`)을 못 불러오는 문제가 생기므로, 이 프로젝트 전용 가상환경을 따로 두는 걸 권장함.
@@ -31,7 +33,7 @@ python -m ipykernel install --user --name capstone --display-name "Python (capst
 
 ### 학습 후 생성된 모델을 재사용할 때의 고정 환경
 
-`requirements.txt`는 개발용 최소 버전 목록으로 유지함. 학습 후 생성된 `.joblib`을 재사용할 때는 **Python 3.12.7 / Linux x86_64**와 `requirements-submission.txt`를 사용함. 이 파일은 현재 번들의 생성 환경 기록과 재로드에 성공한 환경을 기준으로, 모델 로딩·Module 3 후보 예측에 필요한 패키지와 전이 의존성을 고정함. 노트북·SHAP 도구의 전체 개발 환경을 고정한 파일은 아님.
+`requirements.txt`는 개발용 최소 버전 목록으로 유지함. **기본은 학습한 환경에서 모델을 그대로 재사용하는 것임.** `requirements-submission.txt` 고정 환경은 그 파일에 기록된 패키지 버전(Python 3.12.7 / Linux x86_64 기준)으로 생성된 모델에 한정된 선택 절차임 — 모델 로딩·Module 3 후보 예측에 필요한 패키지와 전이 의존성을 고정함. `requirements.txt`로 새로 학습하면 설치되는 패키지 버전이 달라질 수 있어, 그렇게 만든 모델이 이 고정 환경에서 항상 재사용된다고 보장할 수 없음. 노트북·SHAP 도구의 전체 개발 환경을 고정한 파일도 아님.
 
 ```bash
 # Python 3.12.7을 활성화한 상태에서 프로젝트 루트에서 실행
@@ -46,7 +48,14 @@ python -m venv /tmp/capstone-submission
 
 저장소를 새로 받으면 원본 데이터와 학습된 모델은 없지만, `data/processed/pre_impute_data.csv`·`feature_selection.json`(Module 1 산출물)은 이미 포함되어 있음. 그래서 기본 경로는 Module 1 없이 Module 2부터 실행함:
 
-- `pre_impute_data.csv`의 SHA256이 `feature_selection.json`에 기록된 `data_sha256`과 일치해야 함(둘 중 하나만 바뀌면 Module 2가 거부함) — 저장소를 그대로 받았다면 이미 일치함
+- `pre_impute_data.csv`의 SHA256이 `feature_selection.json`에 기록된 `data_sha256`과 일치해야 함(둘 중 하나만 바뀌면 Module 2가 거부함) — Module 2 실행 시 자동으로 검사하지만, 직접 확인하려면:
+
+```bash
+sha256sum data/processed/pre_impute_data.csv
+python3 -c "import json; print(json.load(open('data/processed/feature_selection.json'))['data_sha256'])"
+```
+
+  두 출력이 같아야 함 — 저장소를 그대로 받았다면 이미 일치함
 - `cleaned_features.csv`(품질 확인용)와 학습된 모델(`.joblib`)은 포함되지 않음 — 필요하면 아래 Module 1·2를 실행해 생성함
 
 ### 원본 데이터를 가진 경우 (선택) — Module 1부터 실행
