@@ -55,7 +55,7 @@ python -m venv /tmp/capstone-submission
 
 ### 원본 데이터
 
-- 위치: `data` 폴더의 `raw` 하위(엑셀 파일, 시트명 `원료분석_원본데이터`). 과제 규정상 원본 데이터는 리포지토리에 포함·배포하지 않음(`data` 전체가 `.gitignore` 대상임) — 저장소만 새로 받으면 원본과 `data/processed` 산출물이 모두 없으므로, 원본 파일을 가진 사람이 Module 1부터 실행해야 함
+- 위치: `data` 폴더의 `raw` 하위(엑셀 파일, 시트명 `원료분석_원본데이터`). 과제 규정상 원본 데이터는 리포지토리에 포함·배포하지 않음(`data` 전체가 `.gitignore` 대상이며 신규 파일은 추가하지 않음) — 저장소만 새로 받으면 원본은 없지만, `data/processed/pre_impute_data.csv`·`feature_selection.json`은 이미 포함되어 있어 Module 1 없이 Module 2부터 실행 가능함(아래 "빠른 시작" 참고). `cleaned_features.csv`(품질 확인용)와 학습된 모델(`.joblib`)은 포함되지 않음
 - Module 1은 사용자가 제공한 원본을 직접 읽어 전처리함. Module 2·3은 Module 1이 만든 `data/processed` 산출물만 사용하며 원본에 다시 접근하지 않음
 - 입력 형식은 CSV·XLSX·XLS 지원함 — XLSX는 `openpyxl`, XLS는 `xlrd` 사용함
 - 1행 = 1배치. 현재 `pre_impute_data.csv` 기준 420개 배치, 층화 분할로 Train 294 / Validation 63 / Test 63으로 고정함
@@ -119,18 +119,23 @@ python -m venv /tmp/capstone-submission
 
 ### 빠른 시작
 
-저장소를 새로 받으면 원본 데이터·전처리 산출물·학습된 모델이 전혀 없는 상태임(위 환경 설정·데이터셋 설명 참고). 원본 파일을 가진 경우 Module 1부터 전체를 실행함:
+저장소를 새로 받으면 원본 데이터와 학습된 모델은 없지만, `data/processed/pre_impute_data.csv`·`feature_selection.json`(Module 1 산출물)은 이미 포함되어 있음(위 환경 설정·데이터셋 설명 참고). 그래서 기본 경로는 Module 1 없이 Module 2부터 실행함:
 
 ```bash
-python -m module1_preprocessing.pipeline          # 원본 → data/processed
 python -m module2_prediction.pipeline             # data/processed → 모델 저장
 python -m module3_optimization.pipeline --input module3_optimization/examples/blend_7_3.json --output-dir module3_optimization/reports/blend_7_3   # 저장된 모델 → 추천
 python -m pytest -q
 ```
 
 - 프로젝트 루트에서 실행함
-- Module 1 기본 명령은 배포용 XLSX 경로를 사용함 — 다른 파일은 아래 `run()` 예시로 지정함
-- 원본 없이 `data/processed`(위 "Module 1 산출물" 참고)만 받았다면 Module 1은 건너뛰고 Module 2부터 시작해도 됨. 단 `pre_impute_data.csv`의 SHA256이 `feature_selection.json`에 기록된 `data_sha256`과 일치해야 함(둘 중 하나만 바뀌면 Module 2가 거부함)
+- `pre_impute_data.csv`의 SHA256이 `feature_selection.json`에 기록된 `data_sha256`과 일치해야 함(둘 중 하나만 바뀌면 Module 2가 거부함) — 저장소를 그대로 받았다면 이미 일치함
+- 원본 파일(XLSX, 과제 규정상 리포지토리에 없음)을 직접 가진 경우에만 Module 1부터 다시 실행함:
+
+```bash
+python -m module1_preprocessing.pipeline          # 원본 → data/processed
+```
+
+  - Module 1 기본 명령은 배포용 XLSX 경로를 사용함 — 다른 파일은 아래 `run()` 예시로 지정함
 - 학습된 모델 번들(`.joblib`)까지 이미 받았고 추천만 해보려는 거면 Module 2도 다시 실행할 필요 없이 **Module 3부터** 바로 실행함 — Module 2를 다시 실행하면 모델을 재학습해서 기존 저장 모델을 덮어씀(재학습과 기존 모델 재사용은 다른 작업임)
 
 ### Module 1 — 전처리
@@ -230,7 +235,7 @@ python -m module3_optimization.scripts.test_batch_examples
 
 `module3_optimization/reports/test_batches/`에 배치별 입력·추천 결과와 `summary.csv`(등급·실측값·추천값 비교), `metadata.json`(선정 기준·한계) 저장함.
 
-아래 두 가지는 기본 실행 경로에 필요하지 않은 추가 분석임.
+아래 두 가지는 Module 3 CLI 기본 실행 경로·pytest에는 필요하지 않은 추가 분석임. 단 `notebooks/03_process_optimization.ipynb`를 끝까지 실행하려면 필요함(아래 "노트북으로 실행" 참고).
 
 **등급별 대표 조성과 혼합 비교:**
 
@@ -271,6 +276,19 @@ jupyter notebook notebooks/01_eda_and_validation.ipynb
 
 - Module 1은 원본 입력 경로와 Excel 시트명을 확인한 뒤 전체 셀을 순서대로 실행함
 - Module 2는 Module 1 산출물, Module 3는 Module 2 저장 모델이 필요함
+- `notebooks/03_process_optimization.ipynb`를 셀 오류 없이 끝까지 실행하려면 아래 산출물이 먼저 있어야 함(순서대로 실행):
+
+```bash
+python -m module2_prediction.pipeline
+python -m module3_optimization.pipeline --input module3_optimization/examples/a_example.json --output-dir module3_optimization/reports/a_example
+python -m module3_optimization.pipeline --input module3_optimization/examples/c_example.json --output-dir module3_optimization/reports/c_example
+python -m module3_optimization.pipeline --input module3_optimization/examples/blend_7_3.json --output-dir module3_optimization/reports/blend_7_3
+python -m module3_optimization.scripts.test_batch_examples
+python -m module3_optimization.scripts.compare_blends
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m module3_optimization.scripts.b_grade_capacity
+```
+
+  - 마지막 두 개(`compare_blends`, `b_grade_capacity`)는 Module 3 CLI 기본 경로·pytest에는 필요 없는 추가 분석이지만, 노트북 03의 후반 셀이 그 결과(`representative_blends/`, `b_grade_capacity/`)를 직접 읽으므로 노트북을 전부 실행하려면 필요함
 - CLI는 전처리·선택 결과를 저장하고, Module 1 노트북은 단계별 설명·EDA 그림 생성을 함께 수행함
 - Module 1 노트북은 실행 시 주요 그림을 셀 출력에 표시하고 이미지 파일도 저장함
 - 원본부터 시작하는 `01_eda_and_validation.ipynb`는 원본 읽기 제한으로 전체 실행 결과 미저장 상태임
