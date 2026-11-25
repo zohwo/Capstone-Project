@@ -1,0 +1,89 @@
+{
+  "schema_version": 2,
+  "preprocessing_stage": "before_imputation",
+  "primary_metric": "mae",
+  "cv": {
+    "n_splits": 5,
+    "shuffle": true,
+    "random_state": 42,
+    "stratify_column": "원료등급"
+  },
+  "feature_selection_model": "LightGBM",
+  "selection_policy": "approved_shared_features",
+  "selection_reason": "반복 CV 비교와 입력 구성의 단순성을 고려하여 공통 4종 채택함",
+  "selection_basis": {
+    "seeds": [
+      42,
+      17,
+      83
+    ],
+    "n_splits": 5,
+    "report": "module1_preprocessing/reports/derived_subset_selection/subset_summary.csv"
+  },
+  "lowest_mae_cases": {
+    "Ni_회수율_pct": "base_plus_grade",
+    "Co_회수율_pct": "all_features"
+  },
+  "targets": {
+    "Ni_회수율_pct": {
+      "case": "base_plus_derived",
+      "features": [
+        "Ni_함량_pct",
+        "Co_함량_pct",
+        "Li_함량_pct",
+        "Mn_함량_pct",
+        "Cu_불순물_pct",
+        "Fe_불순물_pct",
+        "Al_불순물_pct",
+        "침출온도_C",
+        "침출시간_hr",
+        "원료투입량_kg",
+        "황산투입량_L",
+        "acid_to_ore_ratio",
+        "leach_intensity",
+        "total_impurity_pct",
+        "feed_impurity_g_per_l"
+      ],
+      "cv_metrics": {
+        "cv_r2": 0.8215483135892601,
+        "cv_mse": 6.107031865308689,
+        "cv_rmse": 2.471240956545656,
+        "cv_mae": 1.940137335463179,
+        "cv_fold_rmse_mean": 2.469071664803863,
+        "cv_rmse_std": 0.1157420589682542,
+        "cv_mae_std": 0.1281561167161433
+      }
+    },
+    "Co_회수율_pct": {
+      "case": "base_plus_derived",
+      "features": [
+        "Ni_함량_pct",
+        "Co_함량_pct",
+        "Li_함량_pct",
+        "Mn_함량_pct",
+        "Cu_불순물_pct",
+        "Fe_불순물_pct",
+        "Al_불순물_pct",
+        "침출온도_C",
+        "침출시간_hr",
+        "원료투입량_kg",
+        "황산투입량_L",
+        "acid_to_ore_ratio",
+        "leach_intensity",
+        "total_impurity_pct",
+        "feed_impurity_g_per_l"
+      ],
+      "cv_metrics": {
+        "cv_r2": 0.8167620546483269,
+        "cv_mse": 8.925252182325442,
+        "cv_rmse": 2.9875160555761777,
+        "cv_mae": 2.291159661038548,
+        "cv_fold_rmse_mean": 2.9548474044031745,
+        "cv_rmse_std": 0.49260658620402237,
+        "cv_mae_std": 0.3464751676807367
+      }
+    }
+  },
+  "data_sha256": "6bca2f3ec584c1444a86a5e9ffde8f44dd8babfe0351849bb1cb467deca34596",
+  "data_file": "pre_impute_data.csv"
+}
