@@ -47,12 +47,9 @@ python -m ipykernel install --user --name capstone --display-name "Python (capst
 python -m venv /tmp/capstone-submission
 /tmp/capstone-submission/bin/python -m pip install -r requirements-submission.txt
 /tmp/capstone-submission/bin/python -m pip check
-/tmp/capstone-submission/bin/python -m module2_prediction.scripts.verify_submission --output /tmp/submission-verification.json
 ```
 
-`verify_submission.py` 자체가 한 번의 실행(어느 환경이든) 안에서 확인하는 것: 번들 2개 로드, RF·XGBoost·LightGBM `n_jobs=1` 설정, Module 3 원료 예제 3종 × 운전조건 3개 예측값이 두 예측 경로(`predict_candidates`/`predict_bundle`)에서 절대오차 `1e-10` 이내로 일치함 — 이건 같은 환경 안에서의 코드 경로 일관성 확인이며, 그 자체로 교차환경 재현을 증명하지 않음.
-
-**교차환경 재현**은 이 스크립트를 기존 환경과 새(클린) 가상환경 양쪽에서 각각 실행해 저장된 `predictions`를 서로 비교해서 확인함(별도 비교 단계 필요). 두 환경의 예측값 차이는 `module2_prediction/reports/final/submission_verification.json`의 `source_environment_prediction_max_abs_diff`에 환경별로 기록하며, 지금까지는 절대오차 `1e-10`(`comparison_atol`) 이내였음. 모델 SHA256·패키지 버전·예측값도 같은 파일에 기록함. 이 검증은 재학습·Test 평가·최적화 탐색을 수행하지 않음.
+저장된 모델을 다시 불러와 예측이 일치하는지는 Module 2 재실행 시 자동으로 확인함(아래 "모듈별 실행 방법" 참고). 교차환경 수치 비교는 과제 범위에서 별도로 요구하지 않아 수행하지 않음.
 
 ## 데이터셋 설명과 유의사항
 
@@ -199,20 +196,6 @@ prediction = predict_blend_scenario(
 
 조성만 혼합비로 가중평균함. 운전조건은 입력한 값으로 유지하고 파생변수는 다시 계산함. 예시 공정조건은 실제 운전값으로 교체해야 함. 혼합 배치에 대한 정확도는 실제 실험으로 검증함.
 
-**추가 모델·확장 튜닝 실험** (기본 실행 경로에 필요하지 않음 — 비교 참고용):
-
-```bash
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m module2_prediction.scripts.extended_model_search
-```
-
-- 기존 입력변수 15개·개발 데이터 357행 유지함
-- SVR 37개, Kernel Ridge 16개, Extra Trees 8개, Gradient Boosting 12개, Ridge 5개 설정 비교함
-- 5-fold 평균 RMSE로 후보 선택하고, 외부 5-fold·내부 3-fold 중첩 CV로 튜닝 과정을 평가함
-- 내부·외부 학습 구간마다 대치 기준을 다시 계산하고 스케일링도 학습 데이터에서만 수행함
-- Test 사용하지 않으며 기존 최종 모델과 Module 3 추천 모델을 교체하지 않음
-- `reports/extended_search/`에 탐색 결과·중첩 CV 예측·등급별 오차·별도 후보 모델 저장함
-- 중첩 CV는 기존 특징 선택 과정까지 포함하지 않으므로 완전히 독립적인 일반화 평가로 해석하지 않음
-
 Module 2 검증: `python -m pytest module2_prediction/tests -q`
 
 ### Module 3 — 공정 레시피 추천
@@ -296,7 +279,6 @@ jupyter notebook notebooks/01_eda_and_validation.ipynb
 - 생성 스크립트는 해당 노트북의 기존 출력을 지우므로 재생성 후 다시 실행·저장해야 함
 - 두 노트북 모두 특징 비교 CV를 한 번 실행하고 저장 단계에서 같은 결과 재사용함
 - 공정조건별 예측 회수율 변화 그래프는 Module 2 영향도 분석에서 다룸
-- 현재 [설계](docs/superpowers/specs/2026-09-28-blackpowder-preprocessing-design.md) · [구현·검증 계획](docs/superpowers/plans/2026-09-28-blackpowder-preprocessing.md)
 
 노트북 구조를 생성 스크립트에서 변경한 경우에만 아래 명령으로 재생성함:
 
@@ -334,7 +316,7 @@ Module 1 → Module 2 → Module 3로 이어지는 각 경계에서 무엇을 �
 **Module 2 (모델 저장과 재사용)**
 - 확인: 저장한 모델을 다시 불러와 Test 예측이 저장 전과 일치하는지 비교함
 - 기록(`python -m module2_prediction.pipeline` 실행 시 자동 저장): 모델 번들에 피처 목록·참조 데이터·타깃 포함
-- 기록(별도 수동 실행 필요, 자동 생성 아님): `environment.json`(생성 환경 스냅샷), `submission_verification.json`(검증 스크립트 실행 결과와 별도로 수행한 교차환경 예측 비교 기록). 모델을 다시 학습하면 두 파일도 다시 생성해야 최신 모델과 일치함
+- 기록(별도 수동 기록, 자동 생성 아님): `environment.json`(생성 환경 스냅샷). 모델을 다시 학습하면 다시 기록해야 최신 모델과 일치함
 
 **Module 2 → Module 3**
 - 확인: Module 3은 로드한 모델의 `target` 메타데이터가 기대한 타깃과 일치하는지 확인함
