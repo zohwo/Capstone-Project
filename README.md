@@ -40,7 +40,7 @@ python -m ipykernel install --user --name capstone --display-name "Python (capst
 
 ### 제출 모델 재현을 위한 고정 환경
 
-`requirements.txt`는 개발용 최소 버전 목록으로 유지함. 제출된 `.joblib`을 재사용할 때는 **Python 3.12.7 / Linux x86_64**와 `requirements-submission.txt`를 사용함. 이 파일은 현재 번들의 생성 환경 기록과 재로드에 성공한 환경을 기준으로, 모델 로딩·Module 3 후보 예측에 필요한 패키지와 전이 의존성을 고정함. 노트북·SHAP 도구의 전체 개발 환경을 고정한 파일은 아님. 생성 환경 기록은 `module2_prediction/reports/final/environment.json`에 있음.
+`requirements.txt`는 개발용 최소 버전 목록으로 유지함. 학습 후 생성된 `.joblib`을 재사용할 때는 **Python 3.12.7 / Linux x86_64**와 `requirements-submission.txt`를 사용함. 이 파일은 현재 번들의 생성 환경 기록과 재로드에 성공한 환경을 기준으로, 모델 로딩·Module 3 후보 예측에 필요한 패키지와 전이 의존성을 고정함. 노트북·SHAP 도구의 전체 개발 환경을 고정한 파일은 아님. 생성 환경 기록은 `module2_prediction/reports/final/environment.json`에 있음.
 
 ```bash
 # Python 3.12.7을 활성화한 상태에서 프로젝트 루트에서 실행
@@ -49,7 +49,7 @@ python -m venv /tmp/capstone-submission
 /tmp/capstone-submission/bin/python -m pip check
 ```
 
-저장된 모델을 다시 불러와 예측이 일치하는지는 Module 2 재실행 시 자동으로 확인함(아래 "모듈별 실행 방법" 참고). 교차환경 수치 비교는 과제 범위에서 별도로 요구하지 않아 수행하지 않음.
+저장된 모델을 다시 불러와 예측이 일치하는지는 Module 2 재실행 시 자동으로 확인함(아래 "모듈별 실행 방법" 참고). 교차환경 수치 비교는 이 저장소의 기본 실행·검증 절차에 포함하지 않음.
 
 ## 데이터셋 설명과 유의사항
 
