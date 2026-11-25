@@ -40,7 +40,7 @@ python -m ipykernel install --user --name capstone --display-name "Python (capst
 
 ### 제출 모델 재현을 위한 고정 환경
 
-`requirements.txt`는 개발용 최소 버전 목록으로 유지함. 학습 후 생성된 `.joblib`을 재사용할 때는 **Python 3.12.7 / Linux x86_64**와 `requirements-submission.txt`를 사용함. 이 파일은 현재 번들의 생성 환경 기록과 재로드에 성공한 환경을 기준으로, 모델 로딩·Module 3 후보 예측에 필요한 패키지와 전이 의존성을 고정함. 노트북·SHAP 도구의 전체 개발 환경을 고정한 파일은 아님. 생성 환경 기록은 `module2_prediction/reports/final/environment.json`에 있음.
+`requirements.txt`는 개발용 최소 버전 목록으로 유지함. 학습 후 생성된 `.joblib`을 재사용할 때는 **Python 3.12.7 / Linux x86_64**와 `requirements-submission.txt`를 사용함. 이 파일은 현재 번들의 생성 환경 기록과 재로드에 성공한 환경을 기준으로, 모델 로딩·Module 3 후보 예측에 필요한 패키지와 전이 의존성을 고정함. 노트북·SHAP 도구의 전체 개발 환경을 고정한 파일은 아님.
 
 ```bash
 # Python 3.12.7을 활성화한 상태에서 프로젝트 루트에서 실행
@@ -334,7 +334,6 @@ Module 1 → Module 2 → Module 3로 이어지는 각 경계에서 무엇을 �
 **Module 2 (모델 저장과 재사용)**
 - 확인: 저장한 모델을 다시 불러와 Test 예측이 저장 전과 일치하는지 비교함
 - 기록(`python -m module2_prediction.pipeline` 실행 시 자동 저장): 모델 번들에 피처 목록·참조 데이터·타깃 포함
-- 기록(별도 수동 기록, 자동 생성 아님): `environment.json`(생성 환경 스냅샷). 모델을 다시 학습하면 다시 기록해야 최신 모델과 일치함
 
 **Module 2 → Module 3**
 - 확인: Module 3은 로드한 모델의 `target` 메타데이터가 기대한 타깃과 일치하는지 확인함
