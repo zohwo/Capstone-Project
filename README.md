@@ -199,7 +199,7 @@ prediction = predict_blend_scenario(
 )
 ```
 
-조성만 혼합비로 가중평균함. 운전조건은 입력한 값으로 유지하고 파생변수는 다시 계산함. 예시 공정조건은 실제 운전값으로 교체해야 함. 혼합 배치에 대한 정확도는 실제 실험으로 검증함.
+조성만 혼합비로 가중평균함. 운전조건은 입력한 값으로 유지하고 파생변수는 다시 계산함. 예시 공정조건은 실제 운전값으로 교체해야 함. 혼합 배치에 대한 정확도는 실제 실험으로 검증해야 함.
 
 Module 2 검증: `python -m pytest module2_prediction/tests -q`
 
@@ -291,7 +291,7 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m module3_optimization.scripts.
   - 마지막 두 개(`compare_blends`, `b_grade_capacity`)는 Module 3 CLI 기본 경로·pytest에는 필요 없는 추가 분석이지만, 노트북 03의 후반 셀이 그 결과(`representative_blends/`, `b_grade_capacity/`)를 직접 읽으므로 노트북을 전부 실행하려면 필요함
 - CLI는 전처리·선택 결과를 저장하고, Module 1 노트북은 단계별 설명·EDA 그림 생성을 함께 수행함
 - Module 1 노트북은 실행 시 주요 그림을 셀 출력에 표시하고 이미지 파일도 저장함
-- 원본부터 시작하는 `01_eda_and_validation.ipynb`는 원본 읽기 제한으로 전체 실행 결과 미저장 상태임
+- `01_eda_and_validation.ipynb`는 원본으로 전체 셀을 실행한 결과가 저장되어 있음(코드 셀 21개 모두 실행 번호 있고 19개 셀에 출력 포함, 오류 출력 없음)
 - `01_eda_and_validation_processed.ipynb`에는 기존 정제 데이터부터 실행한 표·그림·CV 결과 저장됨 — 원본 정제 단계의 재실행 결과는 아님
 - 정제 데이터 기반 노트북은 `python -m module1_preprocessing.scripts.build_notebook --processed`로 생성 가능함
 - 생성 스크립트는 해당 노트북의 기존 출력을 지우므로 재생성 후 다시 실행·저장해야 함
